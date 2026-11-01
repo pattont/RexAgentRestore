@@ -1,8 +1,14 @@
-# Rex Agent Restore
+<h1 align="center">Rex Agent Restore</h1>
 
-[![test](https://github.com/pattont/RexAgentRestore/actions/workflows/test.yml/badge.svg)](https://github.com/pattont/RexAgentRestore/actions/workflows/test.yml)
+<p align="center"><b>Restart Rex and your agent chats come back.</b></p>
 
-**Restart Rex and your agent chats come back.**
+<p align="center">
+  <a href="https://github.com/pattont/RexAgentRestore/actions/workflows/test.yml"><img src="https://github.com/pattont/RexAgentRestore/actions/workflows/test.yml/badge.svg" alt="test"></a>
+</p>
+
+<p align="center">
+  <img src=".github/assets/hero.svg" width="100%" alt="Three Rex windows. 1: Claude Code, Codex and OpenCode are mid-chat. 2: Rex restarts and every pane is a new shell. 3: with Rex Agent Restore, each pane resumes its chat." />
+</p>
 
 [Rex](https://www.superlogical.com/rex) restores your sessions, tabs, panes,
 and scrollback after its server restarts, but each pane gets a fresh shell.
@@ -45,8 +51,9 @@ rex-agent-restore capture
 
 ### Coming from herdr
 
-Recreate your herdr workspaces in Rex, with the same tabs and splits, and every
-agent pane resuming its chat:
+Move your herdr workspaces into Rex once, then turn herdr off. Each workspace
+becomes a Rex session with the same tabs, splits and folders, and every agent
+pane resumes its chat:
 
 ```sh
 rex-agent-restore import-herdr --dry-run   # see what it would create
@@ -54,7 +61,9 @@ herdr server stop                          # so no chat runs in two places
 rex-agent-restore import-herdr
 ```
 
-It skips workspaces it has already imported.
+From then on, Rex keeps your chats across restarts by itself, so herdr doesn't
+need to run. The import also saves each chat, so the next Rex restart brings
+it back. Running it again skips workspaces it has already imported.
 
 ## Supported agents
 
@@ -93,6 +102,26 @@ welcome too.
 - **Hermes Agent:** runs every chat in one shared background process, so a chat
   can't be tied to its pane.
 - **MastraCode:** its hooks don't reliably report the chat ID.
+
+## How it compares to herdr2rex
+
+[herdr2rex](https://github.com/tornikegomareli/herdr2rex) is a great tool with
+a different goal: it moves workspaces **between** herdr and Rex, in either
+direction. Rex Agent Restore makes **Rex itself** bring your chats back, so
+after moving over you don't need herdr at all.
+
+| | herdr2rex | Rex Agent Restore |
+| --- | --- | --- |
+| Main job | Copy workspaces between herdr and Rex | Resume chats every time Rex restarts |
+| Import from herdr | ✅ Tabs, splits, folders, chats | ✅ Tabs, splits, folders, chats |
+| Chats you start in Rex survive a Rex restart | ❌ They open as plain shells (`--reverse` can carry Claude Code chats back into herdr) | ✅ 17 agents (see [Tested](#supported-agents)) |
+| Turn herdr off after moving | You can, but then nothing keeps your Rex chats | ✅ That's the point |
+| Going back to herdr | ✅ `--reverse` | ❌ Not a goal |
+| Re-run to pick up changes in herdr | ✅ Adds new tabs and panes | Imports each workspace once |
+| How it runs | When you run it | Automatically, through agent hooks and your shell |
+
+Use herdr2rex if you want to keep using herdr and Rex side by side. Use Rex
+Agent Restore if you're moving to Rex for good.
 
 ## How it works
 
