@@ -1,5 +1,5 @@
 class RexAgentRestore < Formula
-  desc "Resume Claude Code, Codex, and Grok Build chats when Rex restores your panes"
+  desc "Resume coding agent chats (Claude Code, Codex, OpenCode, ...) after Rex restarts"
   homepage "https://github.com/pattont/RexAgentRestore"
   url "https://github.com/pattont/RexAgentRestore/archive/refs/tags/v0.1.0.tar.gz"
   sha256 "8f840187f6e7a360878c97de6c73c27eaf60cf9130d006ec62f255923fa0f3a0"
@@ -18,9 +18,14 @@ class RexAgentRestore < Formula
       Finish the setup with one command:
         rex-agent-restore install
 
-      It adds a SessionStart hook to Claude Code, Codex, and Grok Build, a line
-      to your ~/.zshrc, and "Resume Saved Agent Chats" actions to Rex. Every
-      file it changes is backed up first. Undo it with:
+      It finds the coding agents you have (Claude Code, Codex, OpenCode, Gemini
+      CLI, Cursor Agent, and more), adds a hook or plugin to each, a line to
+      your ~/.zshrc, and palette actions to Rex. Files are backed up first.
+
+      Using Codex? Run /hooks in Codex once and approve rex-agent-restore.
+      Before your first Rex restart, save the chats already open:
+        rex-agent-restore capture
+      Undo everything with:
         rex-agent-restore uninstall
     EOS
   end

@@ -206,6 +206,41 @@ sleep 0.5
 out="$(REX_AGENT_RESTORE_STATE_DIR="$D/state" "$BIN" prune 2>&1)"
 check "prune forgets chats for closed panes" '[ ! -e "$(rec "$B2")" ]'
 
+# 6. Importing herdr workspaces.
+mkdir -p "$D/herdr-proj"
+cat > "$D/herdr-session.json" <<EOF
+{ "version": 3, "active": 0, "selected": 0,
+  "workspaces": [ { "id": "w9", "custom_name": null, "identity_cwd": "$D/herdr-proj", "active_tab": 0,
+    "tabs": [
+      { "custom_name": "Two panes", "zoomed": false, "focused": 1, "root_pane": 1,
+        "layout": { "Split": { "direction": "Horizontal", "ratio": 0.6, "first": { "Pane": 1 }, "second": { "Pane": 2 } } },
+        "panes": { "1": { "cwd": "$D/herdr-proj", "label": "Fix the thing",
+                          "agent_session": { "source": "herdr:claude", "agent": "claude", "kind": "id", "value": "h-claude-1" } },
+                   "2": { "cwd": "$D/herdr-proj" } } },
+      { "custom_name": null, "zoomed": false, "focused": 3, "root_pane": 3,
+        "layout": { "Pane": 3 },
+        "panes": { "3": { "cwd": "$D/herdr-proj",
+                          "agent_session": { "source": "herdr:codex", "agent": "codex", "kind": "id", "value": "h-codex-1" } } } } ] } ] }
+EOF
+imp() { REX_SERVER="$SOCK" REX_AGENT_RESTORE_STATE_DIR="$D/state" "$BIN" import-herdr --file "$D/herdr-session.json" --force "$@" 2>&1; }
+out="$(imp --dry-run)"
+check "import dry run lists the panes" 'echo "$out" | grep -q "claude --resume '"'"'h-claude-1'"'"'" && echo "$out" | grep -q "(shell)"' "$out"
+check "import dry run creates nothing" '! R ls --json | jq -e ".sessions[] | select(.label == \"herdr-proj\")" >/dev/null'
+out="$(imp)"
+HS="$(R ls --json | jq -r '.sessions[] | select(.label == "herdr-proj") | .session_id')"
+check "import creates a Rex session named after the workspace" '[ -n "$HS" ]' "$out"
+check "imported chats are resumed" 'wait_for 15 log_has "claude resumed h-claude-1" && wait_for 15 log_has "codex resumed h-codex-1"' "$out
+$(cat "$LOG")"
+check "import keeps tabs and splits" '[ "$(R session inspect "$HS" --json | jq "[.windows[]] | length")" = 2 ] && [ "$(R block ls -s "$HS" --json | jq ".blocks | length")" = 3 ]'
+saved_chats() { cat "$D"/state/panes/*.json 2>/dev/null | jq -r .chat_id | sort | tr '\n' ' '; }
+check "imported chats are saved for the next restart" 'wait_for 10 sh -c "cat \"$D\"/state/panes/*.json | grep -q h-claude-1 && cat \"$D\"/state/panes/*.json | grep -q h-codex-1"' "$(saved_chats)"
+out="$(imp)"
+check "importing again skips the workspace" 'echo "$out" | grep -q "already imported"' "$out"
+: > "$LOG"
+stop_server
+start_server
+check "imported chats come back after a restart" 'wait_for 15 log_has "claude resumed h-claude-1" && wait_for 15 log_has "codex resumed h-codex-1"' "$(cat "$LOG")"
+
 echo
 printf '%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

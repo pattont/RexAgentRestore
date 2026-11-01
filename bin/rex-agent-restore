@@ -25,7 +25,8 @@ STATE_DIR="${REX_AGENT_RESTORE_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/
 PANES_DIR="$STATE_DIR/panes"
 CONFIG_FILE="${REX_AGENT_RESTORE_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/rex-agent-restore/config}"
 
-KNOWN_AGENTS="claude codex grok"
+# Every agent this tool can save and resume chats for.
+KNOWN_AGENTS="claude codex grok gemini copilot cursor droid antigravity devin kimi qoder qwen letta opencode pi omp kilo"
 # Matches our hook command, quoted or not: '/path/rex-agent-restore' hook claude
 HOOK_RE="rex-agent-restore'?[[:space:]]+hook[[:space:]]"
 BLOCK_BEGIN="# >>> rex-agent-restore >>>"
@@ -151,18 +152,56 @@ tilde() {
   esac
 }
 
-is_agent_name() {
-  local n
-  n="$(basename -- "$1")"
-  n="${n#-}"
-  case "$n" in
-    claude|claude[-_.]*) echo claude ;;
-    codex|codex[-_.]*) echo codex ;;
-    grok|grok[-_.]*) echo grok ;;
-    *) return 1 ;;
-  esac
-}
+AGENT_AWK='
+  function agent_of(args,   a0, base, rest) {
+    a0 = args; sub(/[ \t].*/, "", a0)
+    base = a0; sub(/.*\//, "", base); sub(/^[-.]+/, "", base)
+    if (base ~ /^claude([-_.].*)?$/) return "claude"
+    if (base ~ /^codex([-_.].*)?$/) return "codex"
+    if (base ~ /^grok([-_.].*)?$/) return "grok"
+    if (base ~ /^gemini([-_.].*)?$/) return "gemini"
+    if (base ~ /^copilot([-_.].*)?$/) return "copilot"
+    if (base ~ /^cursor-agent([-_.].*)?$/) return "cursor"
+    if (base ~ /^droid([-_.].*)?$/) return "droid"
+    if (base ~ /^agy([-_.].*)?$/) return "antigravity"
+    if (base ~ /^devin([-_.].*)?$/) return "devin"
+    if (base ~ /^kimi(-code)?([-_.].*)?$/) return "kimi"
+    if (base ~ /^qoder(cli)?([-_.].*)?$/) return "qoder"
+    if (base ~ /^qwen([-_.].*)?$/) return "qwen"
+    if (base ~ /^letta([-_.].*)?$/) return "letta"
+    if (base ~ /^opencode([-_.].*)?$/) return "opencode"
+    if (base ~ /^pi$/) return "pi"
+    if (base ~ /^omp([-_.].*)?$/) return "omp"
+    if (base ~ /^kilo([-_.].*)?$/) return "kilo"
+    # Agents written in JavaScript or Python run under their interpreter, so
+    # look for the package in the rest of the command line.
+    if (base ~ /^(node|bun|deno|[Pp]ython[0-9.]*)$/) {
+      rest = args
+      if (rest ~ /claude-code/) return "claude"
+      if (rest ~ /@openai\/codex/) return "codex"
+      if (rest ~ /gemini-cli/) return "gemini"
+      if (rest ~ /@github\/copilot/) return "copilot"
+      if (rest ~ /cursor-agent/) return "cursor"
+      if (rest ~ /letta-code/) return "letta"
+      if (rest ~ /qwen-code/) return "qwen"
+      if (rest ~ /qodercli|@qoder-ai/) return "qoder"
+      if (rest ~ /kimi-code/) return "kimi"
+      if (rest ~ /pi-coding-agent/) return "pi"
+      if (rest ~ /oh-my-pi|\/omp([ \/]|$)/) return "omp"
+      if (rest ~ /\.?opencode([ \/]|$)|opencode-ai/) return "opencode"
+      if (rest ~ /@kilocode|\/\.?kilo([ \/]|$)/) return "kilo"
+      if (rest ~ /@factory|\/droid([ \/]|$)/) return "droid"
+    }
+    return ""
+  }
+'
 
+is_agent_name() {
+  local a
+  a="$(printf '%s\n' "$1" | awk "$AGENT_AWK"'{ print agent_of($0) }')"
+  [ -n "$a" ] || return 1
+  printf '%s\n' "$a"
+}
 is_shell_name() {
   local n
   n="$(basename -- "$1")"
@@ -179,41 +218,60 @@ is_shell_name() {
 # another agent (a headless `claude -p` run by a tool, for example).
 find_agent_ancestor() {
   # _REX_AGENT_RESTORE_STOP_PID (tests only) stops the walk at that process.
-  ps -axo pid=,ppid=,comm= 2>/dev/null | awk -v start="$$" -v stop="${_REX_AGENT_RESTORE_STOP_PID:-0}" '
+  ps -axo pid=,ppid=,args= 2>/dev/null | awk -v start="$$" -v stop="${_REX_AGENT_RESTORE_STOP_PID:-0}" "$AGENT_AWK"'
     {
       pid = $1; ppid = $2
       $1 = ""; $2 = ""
       sub(/^[ \t]+/, "")
-      parent[pid] = ppid; comm[pid] = $0
-    }
-    function agent(c,   n) {
-      n = c; sub(/.*\//, "", n); sub(/^-/, "", n)
-      if (n ~ /^claude([-_.].*)?$/) return "claude"
-      if (n ~ /^codex([-_.].*)?$/) return "codex"
-      if (n ~ /^grok([-_.].*)?$/) return "grok"
-      return ""
+      parent[pid] = ppid; cmd[pid] = $0
     }
     END {
-      p = parent[start]; depth = 0; count = 0; first = ""; firstpid = 0
+      p = parent[start]; depth = 0; count = 0; first = ""; firstpid = 0; prev = ""
       while (p != "" && p > 1 && p != stop && depth < 64) {
-        a = agent(comm[p])
-        if (a != "") {
+        a = agent_of(cmd[p])
+        # An agent that starts a copy of itself (a launcher and the real
+        # program) counts once; the same agent with a shell in between
+        # counts twice.
+        if (a != "" && a != prev) {
           count++
           if (first == "") { first = a; firstpid = p }
         }
+        prev = a
         p = parent[p]; depth++
       }
       printf "%s %s %d\n", (first == "" ? "-" : first), firstpid, count
     }'
 }
+# write_record BLOCK SESSION SERVER AGENT CHAT CWD SOURCE TOKEN PID
+write_record() {
+  local file tmp pid="${9:-0}"
+  case "$pid" in ''|*[!0-9]*) pid=0 ;; esac
+  file="$(record_path "$1")" || return 1
+  mkdir -p "$PANES_DIR" 2>/dev/null || return 1
+  chmod 700 "$STATE_DIR" "$PANES_DIR" 2>/dev/null
+  tmp="$file.tmp.$$"
+  jq -cn \
+    --arg block "$1" --arg session "$2" --arg server "$3" \
+    --arg agent "$4" --arg chat "$5" --arg cwd "$6" --arg source "$7" \
+    --arg token "$8" --argjson pid "$pid" --arg at "$(now_iso)" \
+    '{version: 1, block_id: $block, rex_session: $session, rex_server: $server,
+      agent: $agent, chat_id: $chat, cwd: $cwd, source: $source,
+      shell_token: $token, agent_pid: $pid, updated_at: $at}' > "$tmp" 2>/dev/null \
+    && mv -f "$tmp" "$file" 2>/dev/null
+  local rc=$?
+  rm -f "$tmp" 2>/dev/null
+  return $rc
+}
 
 # ------------------------------------------------------------------- hook
 
 cmd_hook() {
-  local hint="${1:-}"
-  # Hooks must never print to stdout (Claude adds it to the model's context)
-  # and must never fail the agent.
-  exec 1>/dev/null
+  local hint
+  hint="$(normalize_agent "${1:-}")"
+  # Antigravity requires a JSON object on stdout; every other agent gets
+  # nothing (some add a hook's output to the chat, Gemini shows stderr).
+  [ "$hint" = antigravity ] && printf '{}'
+  exec 1>/dev/null 2>/dev/null
   [ -n "${REX_BLOCK:-}" ] || return 0
   have jq || return 0
   load_config
@@ -224,49 +282,73 @@ cmd_hook() {
   [ -n "$input" ] || input='{}'
   printf '%s' "$input" | jq -e 'type == "object"' >/dev/null 2>&1 || input='{}'
 
-  local fields event subagent source sid cwd
+  # Agents name the same things differently; take the first one present.
+  local fields event subagent source sid conv owner cwd background
   fields="$(printf '%s' "$input" | jq -r '
-    [ (.hook_event_name // .hookEventName // ""),
-      ((.agent_id // .agentId // .parent_session_id // .parentSessionId // "") | tostring),
+    [ (.hook_event_name // .hookEventName // .event_type // .eventType // ""),
+      ((.agent_id // .agentId // .parent_agent_id // .parentAgentId // .parent_session_id // .parentSessionId // "") | tostring),
       (.source // ""),
-      (.session_id // .sessionId // ""),
-      (.cwd // "")
+      (.session_id // .sessionId // .conversation_id // .conversationId // ""),
+      (.conversation_id // .conversationId // ""),
+      ((.agent_id // .agentId // "") | tostring),
+      (.cwd // .working_directory // .workingDirectory // (.workspace_roots // [])[0] // (.workspacePaths // [])[0] // ""),
+      ((.is_background_agent // false) | tostring)
     ] | map(tostring | gsub("[\u001f\n]"; " ")) | join("\u001f")' 2>/dev/null)" || return 0
   # Split on the ASCII unit separator: unlike a tab, it isn't whitespace,
   # so empty fields are kept.
-  IFS=$'\037' read -r event subagent source sid cwd <<EOF
+  IFS=$'\037' read -r event subagent source sid conv owner cwd background <<EOF
 $fields
 EOF
 
   case "$event" in
-    ''|SessionStart|session_start|sessionStart) ;;
+    ''|SessionStart|session_start|sessionStart|session-start) ;;
+    PreInvocation) [ "$hint" = antigravity ] || return 0 ;;   # Antigravity backstop
     *) return 0 ;;
   esac
-  # Subagents run inside the main chat; never record them.
-  [ -n "$subagent" ] && return 0
 
+  # Find the agent this hook belongs to by walking up the process tree.
   local found agent agent_pid count
   found="$(find_agent_ancestor)"
   read -r agent agent_pid count <<EOF
 $found
 EOF
   if [ "${count:-0}" -gt 1 ]; then
-    debug "skip: nested agent chain ($found)"
+    debug "skip: agent started from inside another agent ($found)"
     return 0
   fi
   if [ "$agent" = "-" ] || [ -z "$agent" ]; then
+    # Couldn't recognize the process; trust the hook's own agent name, except
+    # for Cursor, whose IDE reads the same hooks file as cursor-agent.
+    if [ "$hint" = cursor ] && [ -z "${CURSOR_INVOKED_AS:-}" ]; then
+      debug "skip: cursor hook outside cursor-agent"
+      return 0
+    fi
     agent="$hint"
     agent_pid=0
+  elif [ "$agent" != "$hint" ] && [ "$hint" != claude ]; then
+    # Several agents also run Claude Code's hooks; those are recorded under
+    # the agent that's really running. Any other mismatch means the hook's
+    # agent was started from inside a different one.
+    debug "skip: $hint hook inside $agent"
+    return 0
   fi
   case " $KNOWN_AGENTS " in
     *" $agent "*) ;;
     *) debug "skip: unknown agent '$agent'"; return 0 ;;
   esac
 
+  # Subagents run inside the main chat; never record them. (Letta's agent_id
+  # names the Letta agent itself, not a subagent.)
+  if [ "$agent" = letta ]; then
+    [ "${LETTA_CODE_AGENT_ROLE:-}" = subagent ] && return 0
+  elif [ -n "$subagent" ]; then
+    return 0
+  fi
+  [ "$background" = true ] && return 0
+
   case "$agent" in
-    grok)
-      [ -n "${GROK_SESSION_ID:-}" ] && sid="$GROK_SESSION_ID"
-      ;;
+    grok) [ -n "${GROK_SESSION_ID:-}" ] && sid="$GROK_SESSION_ID" ;;
+    gemini) [ -n "$sid" ] || sid="${GEMINI_SESSION_ID:-}"; [ -n "$cwd" ] || cwd="${GEMINI_CWD:-}" ;;
     codex)
       # Codex passes its thread ID to child processes. A different ID means
       # this hook belongs to a chat started from inside another Codex chat.
@@ -275,31 +357,20 @@ EOF
         return 0
       fi
       ;;
+    letta)
+      sid="$conv"
+      [ "$sid" = default ] && sid="default:${owner:-${LETTA_AGENT_ID:-}}"
+      [ -n "$cwd" ] || cwd="${LETTA_WORKING_DIR:-}"
+      ;;
+    devin) [ -n "$cwd" ] || cwd="${DEVIN_PROJECT_DIR:-}" ;;
+    qoder) [ -n "$cwd" ] || cwd="${QODER_PROJECT_DIR:-}" ;;
+    qwen) [ -n "$cwd" ] || cwd="${QWEN_PROJECT_DIR:-}" ;;
   esac
   [ -n "$sid" ] || { debug "skip: no session id"; return 0; }
   [ -n "$cwd" ] || cwd="$PWD"
 
-  local file tmp
-  file="$(record_path "$REX_BLOCK")" || return 0
-  mkdir -p "$PANES_DIR" 2>/dev/null || return 0
-  chmod 700 "$STATE_DIR" "$PANES_DIR" 2>/dev/null
-  tmp="$file.tmp.$$"
-  jq -cn \
-    --arg block "$REX_BLOCK" \
-    --arg session "${REX_SESSION:-}" \
-    --arg server "${REX_SERVER:-}" \
-    --arg agent "$agent" \
-    --arg chat "$sid" \
-    --arg cwd "$cwd" \
-    --arg source "$source" \
-    --arg token "${REX_AGENT_RESTORE_SHELL_TOKEN:-}" \
-    --argjson pid "${agent_pid:-0}" \
-    --arg at "$(now_iso)" \
-    '{version: 1, block_id: $block, rex_session: $session, rex_server: $server,
-      agent: $agent, chat_id: $chat, cwd: $cwd, source: $source,
-      shell_token: $token, agent_pid: $pid, updated_at: $at}' > "$tmp" 2>/dev/null \
-    && mv -f "$tmp" "$file" 2>/dev/null
-  rm -f "$tmp" 2>/dev/null
+  write_record "$REX_BLOCK" "${REX_SESSION:-}" "${REX_SERVER:-}" "$agent" "$sid" "$cwd" \
+    "$source" "${REX_AGENT_RESTORE_SHELL_TOKEN:-}" "${agent_pid:-0}" || return 0
   debug "recorded $agent $sid for $REX_BLOCK (source=$source)"
 
   maybe_prune_in_background
@@ -327,17 +398,65 @@ maybe_prune_in_background() {
 
 record_field() { jq -r --arg k "$2" '.[$k] // empty | tostring' "$1" 2>/dev/null; }
 
+# Normalize agent names from other tools (herdr, process names) to ours.
+normalize_agent() {
+  case "$1" in
+    antigravity|antigravity_cli|antigravity-cli|agy) echo antigravity ;;
+    cursor|cursor-agent|cursor_agent) echo cursor ;;
+    qoder|qodercli) echo qoder ;;
+    github-copilot|copilot) echo copilot ;;
+    factory|droid) echo droid ;;
+    *) printf '%s\n' "$1" ;;
+  esac
+}
+
+# Print the resume command for AGENT and CHAT_ID, shell-quoted.
 agent_resume_argv() {
-  # Print the resume command for AGENT and CHAT_ID, shell-quoted.
-  local agent="$1" chat="$2" extra=""
+  local agent chat="$2" q extra="" var
+  agent="$(normalize_agent "$1")"
+  q="$(shq "$chat")"
   case "$agent" in
-    claude) extra="${REX_AGENT_RESTORE_CLAUDE_ARGS:-}"; printf 'claude --resume %s' "$(shq "$chat")" ;;
-    codex) extra="${REX_AGENT_RESTORE_CODEX_ARGS:-}"; printf 'codex resume %s' "$(shq "$chat")" ;;
-    grok) extra="${REX_AGENT_RESTORE_GROK_ARGS:-}"; printf 'grok --resume %s' "$(shq "$chat")" ;;
+    claude) printf 'claude --resume %s' "$q" ;;
+    codex) printf 'codex resume %s' "$q" ;;
+    grok) printf 'grok --resume %s' "$q" ;;
+    gemini) printf 'gemini --resume %s' "$q" ;;
+    copilot) printf 'copilot --resume=%s' "$q" ;;
+    cursor) printf 'cursor-agent --resume %s' "$q" ;;
+    opencode) printf 'opencode --session %s' "$q" ;;
+    droid) printf 'droid --resume %s' "$q" ;;
+    antigravity) printf 'agy --conversation %s' "$q" ;;
+    pi) printf 'pi --session %s' "$q" ;;
+    omp) printf 'omp --resume=%s' "$q" ;;
+    devin) printf 'devin --resume %s' "$q" ;;
+    kimi) printf 'kimi --session %s' "$q" ;;
+    qoder) if have qoder; then printf 'qoder --resume %s' "$q"; else printf 'qodercli --resume %s' "$q"; fi ;;
+    qwen) printf 'qwen --resume %s' "$q" ;;
+    kilo) printf 'kilo --session %s' "$q" ;;
+    hermes) printf 'hermes --resume %s' "$q" ;;
+    mastracode) printf 'mastracode --thread %s' "$q" ;;
+    letta)
+      case "$chat" in
+        default:*) printf 'letta --conversation default --agent %s' "$(shq "${chat#default:}")" ;;
+        *) printf 'letta --conversation %s' "$q" ;;
+      esac
+      ;;
     *) return 1 ;;
   esac
+  # Extra arguments, e.g. REX_AGENT_RESTORE_CLAUDE_ARGS.
+  var="REX_AGENT_RESTORE_$(printf '%s' "$agent" | tr '[:lower:]' '[:upper:]')_ARGS"
+  extra="$(eval "printf '%s' \"\${$var:-}\"")"
   [ -n "$extra" ] && printf ' %s' "$extra"
   printf '\n'
+}
+
+# The program a resume command runs (to check it's installed).
+agent_program() {
+  case "$(normalize_agent "$1")" in
+    cursor) echo cursor-agent ;;
+    antigravity) echo agy ;;
+    qoder) if have qoder; then echo qoder; else echo qodercli; fi ;;
+    *) normalize_agent "$1" ;;
+  esac
 }
 
 resume_command_for() {
@@ -369,7 +488,7 @@ cmd_restore_plan() {
   chat="$(record_field "$file" chat_id)"
   cwd="$(record_field "$file" cwd)"
   cmd="$(resume_command_for "$file")" || return 1
-  if [ -n "$agent" ] && ! have "$agent"; then
+  if [ -n "$agent" ] && ! have "$(agent_program "$agent")"; then
     # The agent isn't installed (or isn't on PATH); don't loop on it.
     return 1
   fi
@@ -556,6 +675,296 @@ cmd_resume_all() {
   [ "$n" -gt 0 ] || say "No saved agent chats to resume."
 }
 
+# ---------------------------------------------------------------- capture
+#
+# Save the chats of agents that are running right now, for agents started
+# before the hooks were installed. Run it before restarting Rex.
+
+# Print the chat ID of a running agent process, if it can be found.
+discover_chat_id() {
+  local agent="$1" pid="$2" cwd="$3" f id
+  case "$agent" in
+    claude)
+      # Claude Code keeps one file per running process.
+      f="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/sessions/$pid.json"
+      [ -f "$f" ] || return 1
+      jq -r 'select((.kind // "interactive") == "interactive") | .sessionId // empty' "$f" 2>/dev/null
+      ;;
+    grok)
+      f="${GROK_HOME:-$HOME/.grok}/active_sessions.json"
+      [ -f "$f" ] || return 1
+      jq -r --argjson pid "$pid" '
+        [ (if type == "array" then .[] elif type == "object" then (.sessions // .)[]? else empty end)
+          | select((.pid // .process_id // .processId // 0) == $pid)
+          | (.session_id // .sessionId // .id // empty) ] | first // empty' "$f" 2>/dev/null
+      ;;
+    codex)
+      # Codex doesn't record which process owns a thread. Use the newest
+      # top-level thread in the pane's folder created after the process
+      # started, and only when there's exactly one.
+      have sqlite3 || return 1
+      local db start
+      db="$(ls -t "${CODEX_HOME:-$HOME/.codex}"/state_*.sqlite 2>/dev/null | head -1)"
+      [ -n "$db" ] || return 1
+      start="$(LC_ALL=C date -j -f '%a %b %d %T %Y' "$(LC_ALL=C ps -o lstart= -p "$pid" | sed 's/  */ /g; s/^ //')" +%s 2>/dev/null)" || return 1
+      id="$(sqlite3 "file:$db?mode=ro" "select id from threads where cwd = '$(printf '%s' "$cwd" | sed "s/'/''/g")'
+        and archived = 0 and source not like '%subagent%' and created_at >= $((start - 5))" 2>/dev/null)"
+      [ "$(printf '%s\n' "$id" | grep -c .)" = 1 ] && printf '%s\n' "$id"
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+# Print one line per Rex pane: SESSION BLOCK (for the given server).
+list_panes() {
+  local server="$1" s
+  for s in $(rexs "$server" ls --json 2>/dev/null | jq -r '.sessions[]?.session_id'); do
+    rexs "$server" block ls -s "$s" --json 2>/dev/null | jq -r --arg s "$s" '.blocks[]? | "\($s) \(.block_id)"'
+  done
+}
+
+cmd_capture() {
+  need_jq
+  have rex || die "rex is not on PATH"
+  local dry=0 force=0 server="${REX_SERVER:-}"
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --dry-run|-n) dry=1 ;;
+      --force) force=1 ;;
+      *) die "unknown option: $1" ;;
+    esac
+    shift
+  done
+  local session block out name argv0 pid cwd agent chat token n=0 saved=0 f
+  while read -r session block; do
+    [ -n "$block" ] || continue
+    out="$(rexs "$server" block call -s "$session" -b "$block" process 2>/dev/null)" || continue
+    name="$(printf '%s' "$out" | jq -r '.foreground.name // empty')"
+    argv0="$(printf '%s' "$out" | jq -r '.foreground.argv0 // empty')"
+    pid="$(printf '%s' "$out" | jq -r '.foreground.pid // empty')"
+    cwd="$(printf '%s' "$out" | jq -r '.foreground.cwd // empty')"
+    agent="$(is_agent_name "$name" || is_agent_name "$argv0")" || continue
+    n=$((n + 1))
+    f="$(record_path "$block")"
+    if [ -f "$f" ] && [ "$force" = 0 ]; then
+      say "already saved: ${block#block:} ($agent)"
+      continue
+    fi
+    chat="$(discover_chat_id "$agent" "$pid" "$cwd" | head -1)"
+    if [ -z "$chat" ]; then
+      say "not found:     ${block#block:} ($agent in $(tilde "$cwd")): couldn't find its chat ID"
+      continue
+    fi
+    # The shell's token tells the shell integration this agent is its own,
+    # so the chat is forgotten if you quit it normally.
+    token="$(ps eww -o command= -p "$pid" 2>/dev/null | tr ' ' '\n' | sed -n 's/^REX_AGENT_RESTORE_SHELL_TOKEN=//p' | head -1)"
+    if [ "$dry" = 1 ]; then
+      say "would save:    ${block#block:} ($agent $chat in $(tilde "$cwd"))"
+    else
+      write_record "$block" "$session" "$server" "$agent" "$chat" "$cwd" capture "$token" "$pid" &&
+        say "saved:         ${block#block:} ($agent $chat in $(tilde "$cwd"))"
+    fi
+    saved=$((saved + 1))
+  done <<EOF
+$(list_panes "$server")
+EOF
+  [ "$n" -gt 0 ] || say "No agents are running in Rex right now."
+}
+
+# ----------------------------------------------------------- herdr import
+#
+# Recreate herdr's saved workspaces in Rex: one Rex session per workspace,
+# one window per tab, the same split layout, and each agent pane resuming its
+# chat. Reads herdr's session.json (format version 3).
+
+HERDR_LAYOUT_JQ='
+  def leaves: if has("Pane") then [.Pane | tostring] else (.Split.first | leaves) + (.Split.second | leaves) end;
+  def home($h): if startswith("~/") then $h + .[1:] elif . == "~" then $h else . end;
+  def conv($panes; $cmds; $i; $h):
+    if has("Pane") then
+      ($panes[.Pane | tostring] // {}) as $p
+      | [ { block: ( { flavor: "com.superlogical.terminal.shell",
+                       options: ( { cwd: (($p.cwd // "~") | home($h)) }
+                                  + (if $cmds[$i] != "" then { initial_input: ($cmds[$i] + "\n") } else {} end) ) }
+                     + (if ($p.label // "") != "" then { label: ($p.label | .[0:128]) } else {} end) ) },
+          $i + 1 ]
+    else
+      .Split as $s
+      | ($s.first | conv($panes; $cmds; $i; $h)) as $a
+      | ($s.second | conv($panes; $cmds; $a[1]; $h)) as $b
+      | [ { split: { direction: (if ($s.direction | ascii_downcase) == "vertical" then "vertical" else "horizontal" end),
+                     ratio: ($s.ratio // 0.5), before: $a[0], after: $b[0] } },
+          $b[1] ]
+    end;
+'
+
+herdr_session_file() {
+  printf '%s\n' "${HERDR_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/herdr}/session.json"
+}
+
+cmd_import_herdr() {
+  need_jq
+  load_config
+  local dry=0 force=0 again=0 file="" only=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --dry-run|-n) dry=1 ;;
+      --force) force=1 ;;
+      --reimport) again=1 ;;
+      --file) file="$2"; shift ;;
+      --file=*) file="${1#*=}" ;;
+      --workspace) only="$2"; shift ;;
+      --workspace=*) only="${1#*=}" ;;
+      -h|--help) usage; return 0 ;;
+      *) die "unknown option: $1" ;;
+    esac
+    shift
+  done
+  [ -n "$file" ] || file="$(herdr_session_file)"
+  [ -f "$file" ] || die "can't find herdr's saved session at $file (use --file PATH)"
+  jq -e '.version == 3 and (.workspaces | type == "array")' "$file" >/dev/null 2>&1 ||
+    die "$file isn't a herdr session file this version understands (expected version 3)"
+  [ "$dry" = 1 ] || have rex || die "rex is not on PATH"
+
+  # The same chat must not run in herdr and Rex at once.
+  if [ "$dry" = 0 ] && [ "$force" = 0 ] && have herdr && herdr workspace list >/dev/null 2>&1; then
+    die "herdr is running, so its agents are still open. Stop it first (herdr server stop), or pass --force."
+  fi
+
+  local server="${REX_SERVER:-}" imports="$STATE_DIR/herdr-imports.json"
+  mkdir -p "$STATE_DIR"
+  [ -f "$imports" ] || echo '{}' > "$imports"
+
+  local nws i
+  nws="$(jq '.workspaces | length' "$file")"
+  [ "$nws" -gt 0 ] || { say "herdr has no saved workspaces."; return 0; }
+  [ "$dry" = 1 ] && say "Dry run: nothing will be created."
+
+  i=0
+  while [ "$i" -lt "$nws" ]; do
+    import_workspace "$file" "$i" "$dry" "$again" "$only" "$server" "$imports"
+    i=$((i + 1))
+  done
+}
+
+import_workspace() {
+  local file="$1" wi="$2" dry="$3" again="$4" only="$5" server="$6" imports="$7"
+  local ws wsid label prev
+  ws="$(jq -c --argjson i "$wi" '.workspaces[$i]' "$file")"
+  wsid="$(printf '%s' "$ws" | jq -r '.id // ""')"
+  label="$(printf '%s' "$ws" | jq -r '(.custom_name // "") as $n | if $n != "" then $n else ((.identity_cwd // "herdr") | sub("/+$"; "") | split("/") | last) end | .[0:128]')"
+  if [ -n "$only" ] && [ "$only" != "$wsid" ] && [ "$only" != "$label" ]; then
+    return 0
+  fi
+
+  # Skip workspaces imported before, while their Rex session still exists.
+  prev="$(jq -r --arg id "$wsid" '.[$id] // empty' "$imports")"
+  if [ -n "$prev" ] && [ "$again" = 0 ] && rexs "$server" session inspect "$prev" --json >/dev/null 2>&1; then
+    say "skip $label: already imported (Rex session ${prev#session:}; pass --reimport to import it again)"
+    return 0
+  fi
+
+  # One line per pane, in layout order: TAB_INDEX AGENT CHAT_ID CWD
+  local leaves
+  leaves="$(printf '%s' "$ws" | jq -r --arg h "$HOME" "$HERDR_LAYOUT_JQ"'
+    .tabs | to_entries[] | .key as $t | .value as $tab
+    | ($tab.layout | leaves)[] as $id
+    | ($tab.panes[$id] // {}) as $p
+    | [ $t, ($p.agent_session.agent // "-"), ($p.agent_session.value // "-"), (($p.cwd // "~") | home($h)) ]
+    | map(tostring | gsub("[\u001f\n]"; " ")) | join("\u001f")')"
+
+  # Resume command per pane (empty for plain shells), grouped by tab.
+  local cmds_json='[]' t agent chat cwd cmd cur=-1 tabcmds='[]' agents_list=""
+  local ntabs
+  ntabs="$(printf '%s' "$ws" | jq '.tabs | length')"
+  cmds_json="$(jq -n --argjson n "$ntabs" '[range($n) | []]')"
+  while IFS=$'\037' read -r t agent chat cwd; do
+    [ -n "$t" ] || continue
+    cmd=""
+    if [ "$agent" != "-" ] && [ "$chat" != "-" ]; then
+      agent="$(normalize_agent "$agent")"
+      cmd="$(agent_resume_argv "$agent" "$chat" 2>/dev/null)" || cmd=""
+      [ -n "$cmd" ] || say "  note: $label has a $agent pane this tool can't resume yet; it opens as a shell"
+    fi
+    cmds_json="$(printf '%s' "$cmds_json" | jq -c --argjson t "$t" --arg c "$cmd" '.[$t] += [$c]')"
+  done <<EOF
+$leaves
+EOF
+
+  local req
+  req="$(printf '%s' "$ws" | jq -c --arg h "$HOME" --arg label "$label" --argjson cmds "$cmds_json" "$HERDR_LAYOUT_JQ"'
+    { label: $label,
+      initial_windows: [ .tabs | to_entries[] | .key as $t | .value as $tab
+        | ($tab.layout | conv($tab.panes; $cmds[$t]; 0; $h)[0]) as $layout
+        | { layout: $layout }
+          + (if ($tab.custom_name // "") != "" then { window_label: ($tab.custom_name | .[0:128]) } else {} end) ] }')"
+
+  if [ "$dry" = 1 ]; then
+    say ""
+    say "would create Rex session \"$label\" from herdr workspace $wsid:"
+    printf '%s' "$req" | jq -r --arg home "$HOME" '
+      def short: if startswith($home) then "~" + .[($home|length):] else . end;
+      def lv: if has("block") then [.block] else (.split.before | lv) + (.split.after | lv) end;
+      .initial_windows | to_entries[]
+      | "  tab \(.key + 1)\(if .value.window_label then " (" + .value.window_label + ")" else "" end)",
+        (.value.layout | lv[] | "    \(.options.cwd | short)  \(if .options.initial_input then "→ " + (.options.initial_input | rtrimstr("\n")) else "(shell)" end)")'
+    return 0
+  fi
+
+  local out
+  out="$(printf '%s' "$req" | rexs "$server" api call session.create - 2>&1)" || die "Rex couldn't create the session for $label: $out"
+  local sid
+  sid="$(printf '%s' "$out" | jq -r '.session_id // .session.session_id // empty')"
+  [ -n "$sid" ] || sid="$(rexs "$server" ls --json | jq -r --arg l "$label" '[.sessions[] | select(.label == $l)] | last | .session_id // empty')"
+  jq --arg id "$wsid" --arg s "$sid" '.[$id] = $s' "$imports" > "$imports.tmp" && mv -f "$imports.tmp" "$imports"
+
+  # Pair each new block with its pane, then save each agent pane's chat once
+  # the agent is running (so the shell's token is in its environment).
+  local blocks pairs
+  blocks="$(printf '%s' "$out" | jq -r '[.initial_windows[].block_ids[]] | .[]')"
+  pairs="$(paste -d $'\037' <(printf '%s\n' "$blocks") <(printf '%s\n' "$leaves" | cut -d $'\037' -f2-))"
+  say "imported $label → Rex session ${sid#session:} ($(printf '%s\n' "$blocks" | grep -c .) panes)"
+  save_imported_chats "$server" "$sid" "$pairs"
+}
+
+save_imported_chats() {
+  local server="$1" sid="$2" pairs="$3" block agent chat cwd pending waited=0 out pid name argv0 token f
+  pending="$(printf '%s\n' "$pairs" | awk -F$'\037' '$2 != "-" && $3 != "-"')"
+  while [ -n "$pending" ] && [ "$waited" -lt 30 ]; do
+    local next=""
+    while IFS=$'\037' read -r block agent chat cwd; do
+      [ -n "$block" ] || continue
+      agent="$(normalize_agent "$agent")"
+      f="$(record_path "$block")"
+      if [ -f "$f" ]; then continue; fi   # the agent's own hook saved it
+      out="$(rexs "$server" block call -s "$sid" -b "$block" process 2>/dev/null)"
+      pid="$(printf '%s' "$out" | jq -r '.foreground.pid // empty')"
+      name="$(printf '%s' "$out" | jq -r '.foreground.name // empty')"
+      argv0="$(printf '%s' "$out" | jq -r '.foreground.argv0 // empty')"
+      if [ -n "$pid" ] && ! is_shell_name "$name" && ! is_shell_name "$argv0"; then
+        token="$(ps eww -o command= -p "$pid" 2>/dev/null | tr ' ' '\n' | sed -n 's/^REX_AGENT_RESTORE_SHELL_TOKEN=//p' | head -1)"
+        write_record "$block" "$sid" "$server" "$agent" "$chat" "$cwd" herdr-import "$token" "$pid"
+      else
+        next="$next$block"$'\037'"$agent"$'\037'"$chat"$'\037'"$cwd"$'\n'
+      fi
+    done <<EOF
+$pending
+EOF
+    pending="$next"
+    [ -n "$pending" ] || break
+    sleep 1
+    waited=$((waited + 1))
+  done
+  # Agents that never started (not installed, or slow): save them anyway so
+  # the next Rex restart tries again.
+  while IFS=$'\037' read -r block agent chat cwd; do
+    [ -n "$block" ] || continue
+    [ -f "$(record_path "$block")" ] || write_record "$block" "$sid" "$server" "$(normalize_agent "$agent")" "$chat" "$cwd" herdr-import "" 0
+  done <<EOF
+$pending
+EOF
+}
+
 cmd_shell_init() {
   local shell="${1:-}" share
   share="$(share_dir)"
@@ -588,49 +997,118 @@ hook_command() {
   printf '%s hook %s' "$(shq "$BIN_PATH")" "$agent"
 }
 
-# Add our SessionStart hook to a Claude-style or Codex-style hooks JSON file.
-# The hook is appended so the positions of existing hooks don't change
-# (Codex keys its hook approvals by position).
+HOOK_JQ_RE="rex-agent-restore'?\\s+hook\\s"
+
+# install_json_hook FILE ROOT MODE EVENT HANDLER [GROUP_EXTRA]
+# Add our hook to a JSON hooks file. ROOT is a jq path (as a JSON array) to
+# the object holding events, e.g. ["hooks"] or []. MODE "groups" means
+# EVENT: [{matcher?, hooks: [handler]}] (Claude style); "flat" means
+# EVENT: [handler]. Our hook goes last, so existing hooks keep their
+# positions (Codex keys its approvals by position). If an identical hook is
+# already there, nothing changes.
 install_json_hook() {
-  local file="$1" agent="$2" cmd tmp
-  cmd="$(hook_command "$agent")"
+  local file="$1" root="$2" mode="$3" event="$4" handler="$5" extra="${6:-}" tmp
+  [ -n "$extra" ] || extra='{}'
   if [ -f "$file" ]; then
-    jq -e 'type == "object"' "$file" >/dev/null 2>&1 || { note "skipped $file: not a JSON object"; return 1; }
-    if jq -e --arg cmd "$cmd" 'any(.hooks.SessionStart[]?.hooks[]?; .command == $cmd)' "$file" >/dev/null 2>&1; then
+    jq -e 'type == "object"' "$file" >/dev/null 2>&1 ||
+      { note "skipped $file: couldn't read it as JSON (comments aren't supported)"; return 1; }
+    if jq -e --argjson root "$root" --arg ev "$event" --argjson h "$handler" '
+        (getpath($root + [$ev]) // []) as $l
+        | any($l[]?; if has("hooks") then any(.hooks[]?; (.command // .bash) == ($h.command // $h.bash)) else (.command // .bash) == ($h.command // $h.bash) end)' \
+        "$file" >/dev/null 2>&1; then
       note "already set up: $file"
       return 0
     fi
   fi
-  [ "$DRY_RUN" = 1 ] && { note "would add a SessionStart hook to $file"; return 0; }
+  [ "$DRY_RUN" = 1 ] && { note "would add a $event hook to $file"; return 0; }
   tmp="$(mktemp "${TMPDIR:-/tmp}/rar.XXXXXX")" || return 1
-  { [ -f "$file" ] && cat "$file" || echo '{}'; } | jq --arg cmd "$cmd" --arg re "rex-agent-restore'?\\s+hook\\s" '
-    .hooks = (.hooks // {})
-    | .hooks.SessionStart = (
-        [ (.hooks.SessionStart // [])[]
-          | .hooks = [ (.hooks // [])[] | select(((.command // "") | test($re)) | not) ]
-          | select((.hooks | length) > 0) ]
-        + [ { hooks: [ { type: "command", command: $cmd, timeout: 10 } ] } ]
-      )' > "$tmp" || { rm -f "$tmp"; return 1; }
+  { [ -f "$file" ] && cat "$file" || echo '{}'; } |
+    jq --argjson root "$root" --arg mode "$mode" --arg ev "$event" --argjson h "$handler" \
+       --argjson extra "$extra" --arg re "$HOOK_JQ_RE" '
+      def ours: ((.command // .bash // "") | test($re));
+      def strip: if $mode == "groups"
+        then [ .[]? | .hooks = [ (.hooks // [])[] | select(ours | not) ] | select((.hooks | length) > 0) ]
+        else [ .[]? | select(ours | not) ] end;
+      def add: if $mode == "groups" then . + [ $extra + { hooks: [ $h ] } ] else . + [ $h ] end;
+      setpath($root + [$ev]; (getpath($root + [$ev]) // [] | strip | add))' > "$tmp" ||
+    { rm -f "$tmp"; return 1; }
   backup_file "$file"
   replace_contents "$tmp" "$file"
-  note "added a SessionStart hook to $file"
+  note "added a $event hook to $file"
 }
 
+# uninstall_json_hook FILE ROOT: remove our hooks from every event under ROOT.
 uninstall_json_hook() {
-  local file="$1" tmp
+  local file="$1" root="${2:-}" tmp
+  [ -n "$root" ] || root='["hooks"]'
   [ -f "$file" ] || return 0
-  jq -e --arg re "rex-agent-restore'?\\s+hook\\s" 'any(.hooks.SessionStart[]?.hooks[]?; (.command // "") | test($re))' "$file" >/dev/null 2>&1 || return 0
+  grep -Eq "$HOOK_RE" "$file" 2>/dev/null || return 0
+  jq -e 'type == "object"' "$file" >/dev/null 2>&1 || { note "skipped $file: couldn't read it as JSON"; return 0; }
   [ "$DRY_RUN" = 1 ] && { note "would remove the hook from $file"; return 0; }
   tmp="$(mktemp "${TMPDIR:-/tmp}/rar.XXXXXX")" || return 1
-  jq --arg re "rex-agent-restore'?\\s+hook\\s" '
-    .hooks.SessionStart = [ (.hooks.SessionStart // [])[]
-      | .hooks = [ (.hooks // [])[] | select(((.command // "") | test($re)) | not) ]
-      | select((.hooks | length) > 0) ]
-    | if (.hooks.SessionStart | length) == 0 then del(.hooks.SessionStart) else . end
-    | if (.hooks | length) == 0 then del(.hooks) else . end' "$file" > "$tmp" || { rm -f "$tmp"; return 1; }
+  jq --argjson root "$root" --arg re "$HOOK_JQ_RE" '
+    def ours: ((.command // .bash // "") | test($re));
+    def clean: [ .[] | if (type == "object" and has("hooks") and (.hooks | type) == "array")
+                       then (.hooks = [ .hooks[] | select(ours | not) ]) | select((.hooks | length) > 0)
+                       else select((type == "object" and ours) | not) end ];
+    (getpath($root) // {}) as $r
+    | if ($r | type) != "object" then . else
+        reduce ($r | keys[]) as $k (.;
+          (getpath($root + [$k])) as $v
+          | if ($v | type) == "array" then
+              ($v | clean) as $n
+              | if ($n | length) == 0 and ($v | length) > 0 then delpaths([$root + [$k]]) else setpath($root + [$k]; $n) end
+            else . end)
+        | if $root != [] and ((getpath($root) // {}) | length) == 0 then delpaths([$root]) else . end
+      end' "$file" > "$tmp" || { rm -f "$tmp"; return 1; }
   backup_file "$file"
   replace_contents "$tmp" "$file"
   note "removed the hook from $file"
+}
+
+# install_own_file FILE CONTENT: a file that belongs to this tool alone.
+install_own_file() {
+  local file="$1" content="$2" tmp
+  tmp="$(mktemp "${TMPDIR:-/tmp}/rar.XXXXXX")" || return 1
+  printf '%s\n' "$content" > "$tmp"
+  if [ -f "$file" ] && cmp -s "$tmp" "$file"; then
+    rm -f "$tmp"; note "already set up: $file"; return 0
+  fi
+  [ "$DRY_RUN" = 1 ] && { rm -f "$tmp"; note "would write $file"; return 0; }
+  mkdir -p "$(dirname -- "$file")"
+  mv -f "$tmp" "$file"
+  chmod 644 "$file"
+  note "wrote $file"
+}
+
+# install_plugin AGENT FILE: copy our plugin for AGENT, with this program's path.
+install_plugin() {
+  local agent="$1" file="$2" src
+  src="$(share_dir)/plugins/$agent.$( [ "$agent" = pi ] || [ "$agent" = omp ] && echo ts || echo js)"
+  [ -f "$src" ] || { note "missing plugin source $src"; return 1; }
+  install_own_file "$file" "$(sed "s|__REX_AGENT_RESTORE_BIN__|$(printf '%s' "$BIN_PATH" | sed 's/[|&\\]/\\&/g; s/"/\\\\"/g')|" "$src")"
+}
+
+remove_own_file() {
+  local file="$1"
+  [ -f "$file" ] || return 0
+  grep -q 'rex-agent-restore' "$file" 2>/dev/null || return 0
+  [ "$DRY_RUN" = 1 ] && { note "would remove $file"; return 0; }
+  rm -f "$file"
+  rmdir "$(dirname -- "$file")" 2>/dev/null
+  note "removed $file"
+}
+
+# The handler JSON for AGENT's hook, in that agent's format.
+handler_json() {
+  local agent="$1" cmd
+  cmd="$(hook_command "$agent")"
+  case "$agent" in
+    gemini) jq -cn --arg c "$cmd" '{name: "rex-agent-restore", type: "command", command: $c, timeout: 5000}' ;;
+    cursor) jq -cn --arg c "$cmd" '{command: $c}' ;;
+    letta) jq -cn --arg c "$cmd" '{type: "command", command: $c, timeout: 10000, quiet: true}' ;;
+    *) jq -cn --arg c "$cmd" '{type: "command", command: $c, timeout: 10}' ;;
+  esac
 }
 
 # Make sure Codex's hooks feature is on.
@@ -661,20 +1139,31 @@ codex_enable_hooks() {
   note "turned on [features] hooks in $cfg"
 }
 
-install_grok_hook() {
-  local dir="$1" file tmp
-  file="$dir/rex-agent-restore.json"
-  tmp="$(mktemp "${TMPDIR:-/tmp}/rar.XXXXXX")" || return 1
-  jq -n --arg cmd "$(hook_command grok)" \
-    '{ hooks: { SessionStart: [ { hooks: [ { type: "command", command: $cmd, timeout: 10 } ] } ] } }' > "$tmp"
-  if [ -f "$file" ] && cmp -s "$tmp" "$file"; then
-    rm -f "$tmp"; note "already set up: $file"; return 0
+# Codex runs a new hook only after you approve it with /hooks inside Codex.
+# We never approve it for you; we only check whether you have. Codex saves an
+# approval in config.toml as
+#   [hooks.state."<hooks.json path>:session_start:<group>:<handler>"]
+#   trusted_hash = "sha256:<hex>"
+# Prints "approved", "pending", or "unknown".
+codex_hook_status() {
+  local hooks="$1" cfg="$2" cmd gi key header
+  cmd="$(hook_command codex)"
+  [ -f "$hooks" ] && [ -f "$cfg" ] || { echo unknown; return; }
+  gi="$(jq -r --arg cmd "$cmd" '[.hooks.SessionStart // [] | to_entries[] | select(.value.hooks[0].command == $cmd) | .key] | first // empty' "$hooks" 2>/dev/null)"
+  [ -n "$gi" ] || { echo unknown; return; }
+  key="$(cd "$(dirname -- "$hooks")" && pwd)/$(basename -- "$hooks"):session_start:$gi:0"
+  header="[hooks.state.\"$key\"]"
+  if awk -v h="$header" '
+      $0 == h { in_t = 1; next }
+      /^[[:space:]]*\[/ { in_t = 0 }
+      in_t && /^[[:space:]]*trusted_hash[[:space:]]*=/ { found = 1 }
+      END { exit !found }' "$cfg"; then
+    echo approved
+  else
+    echo pending
   fi
-  [ "$DRY_RUN" = 1 ] && { rm -f "$tmp"; note "would write $file"; return 0; }
-  mkdir -p "$dir"
-  mv -f "$tmp" "$file"
-  note "wrote $file"
 }
+
 
 # Replace (or add) the marked block in FILE with CONTENT.
 put_marked_block() {
@@ -715,9 +1204,8 @@ remove_marked_block() {
   note "removed the block from $file"
 }
 
-claude_dir() { printf '%s\n' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"; }
-codex_dir() { printf '%s\n' "${CODEX_HOME:-$HOME/.codex}"; }
-grok_dir() { printf '%s\n' "${GROK_HOME:-$HOME/.grok}"; }
+claude_dir() { agent_dir claude; }
+codex_dir() { agent_dir codex; }
 rex_config_file() {
   if [ -n "${REX_CONFIG:-}" ]; then
     printf '%s\n' "$REX_CONFIG"
@@ -727,12 +1215,171 @@ rex_config_file() {
 }
 zshrc_file() { printf '%s\n' "${ZDOTDIR:-$HOME}/.zshrc"; }
 
+# Each agent's config folder (honoring the agent's own override variable).
+agent_dir() {
+  case "$1" in
+    claude) printf '%s\n' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}" ;;
+    codex) printf '%s\n' "${CODEX_HOME:-$HOME/.codex}" ;;
+    grok) printf '%s\n' "${GROK_HOME:-$HOME/.grok}" ;;
+    gemini) printf '%s\n' "${GEMINI_CLI_HOME:-$HOME}/.gemini" ;;
+    copilot) printf '%s\n' "${COPILOT_HOME:-$HOME/.copilot}" ;;
+    cursor) printf '%s\n' "$HOME/.cursor" ;;
+    droid) printf '%s\n' "$HOME/.factory" ;;
+    antigravity) printf '%s\n' "${ANTIGRAVITY_CLI_CONFIG_DIR:-$HOME/.gemini/config}" ;;
+    devin) printf '%s\n' "${XDG_CONFIG_HOME:-$HOME/.config}/devin" ;;
+    kimi) printf '%s\n' "${KIMI_CODE_HOME:-$HOME/.kimi-code}" ;;
+    qoder) printf '%s\n' "${QODER_CONFIG_DIR:-$HOME/.qoder}" ;;
+    qwen) printf '%s\n' "${QWEN_HOME:-$HOME/.qwen}" ;;
+    letta) printf '%s\n' "${LETTA_CONFIG_DIR:-$HOME/.letta}" ;;
+    opencode) printf '%s\n' "${XDG_CONFIG_HOME:-$HOME/.config}/opencode" ;;
+    pi) printf '%s\n' "${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}" ;;
+    omp) if [ -n "${PI_CONFIG_DIR:-}" ]; then printf '%s\n' "$HOME/$PI_CONFIG_DIR/agent"; else printf '%s\n' "$HOME/.omp/agent"; fi ;;
+    kilo) printf '%s\n' "${XDG_CONFIG_HOME:-$HOME/.config}/kilo" ;;
+  esac
+}
+
+# The file our hook or plugin lives in, for each agent.
+agent_hook_file() {
+  local d
+  d="$(agent_dir "$1")"
+  case "$1" in
+    claude|gemini|qoder|qwen|letta) printf '%s\n' "$d/settings.json" ;;
+    codex|cursor|antigravity) printf '%s\n' "$d/hooks.json" ;;
+    grok|copilot) printf '%s\n' "$d/hooks/rex-agent-restore.json" ;;
+    droid) if [ -f "$d/hooks.json" ]; then printf '%s\n' "$d/hooks.json"; else printf '%s\n' "$d/settings.json"; fi ;;
+    devin) printf '%s\n' "$d/config.json" ;;
+    kimi) printf '%s\n' "$d/config.toml" ;;
+    opencode) printf '%s\n' "$d/plugins/rex-agent-restore/tui.js" ;;
+    pi) printf '%s\n' "$d/extensions/rex-agent-restore.ts" ;;
+    omp) printf '%s\n' "$d/extensions/rex-agent-restore-omp.ts" ;;
+    kilo) printf '%s\n' "$d/plugin/rex-agent-restore.js" ;;
+  esac
+}
+
+agent_label() {
+  case "$1" in
+    claude) echo "Claude Code" ;; codex) echo "Codex" ;; grok) echo "Grok Build" ;;
+    gemini) echo "Gemini CLI" ;; copilot) echo "GitHub Copilot CLI" ;; cursor) echo "Cursor Agent" ;;
+    droid) echo "Factory Droid" ;; antigravity) echo "Antigravity CLI" ;; devin) echo "Devin CLI" ;;
+    kimi) echo "Kimi Code" ;; qoder) echo "Qoder CLI" ;; qwen) echo "Qwen Code" ;; letta) echo "Letta Code" ;;
+    opencode) echo "OpenCode" ;; pi) echo "pi" ;; omp) echo "oh-my-pi" ;; kilo) echo "Kilo Code CLI" ;;
+    *) printf '%s\n' "$1" ;;
+  esac
+}
+
+# An agent counts as installed if its program is on PATH or its config
+# folder exists.
 agent_present() {
   case "$1" in
-    claude) have claude || [ -d "$(claude_dir)" ] ;;
-    codex) have codex || [ -d "$(codex_dir)" ] ;;
-    grok) have grok || [ -d "$(grok_dir)" ] ;;
+    gemini) have gemini || [ -f "$(agent_dir gemini)/settings.json" ] ;;
+    antigravity) have agy || [ -d "$(agent_dir antigravity)" ] ;;
+    qoder) have qoder || have qodercli || [ -d "$(agent_dir qoder)" ] ;;
+    kimi) have kimi || [ -d "$(agent_dir kimi)" ] ;;
+    *) have "$(agent_program "$1")" || [ -d "$(agent_dir "$1")" ] ;;
   esac
+}
+
+# Hook command lines in TOML (Kimi) need a TOML string.
+toml_str() { printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"; }
+
+install_agent() {
+  local a="$1" d f h
+  d="$(agent_dir "$a")"
+  f="$(agent_hook_file "$a")"
+  h="$(handler_json "$a")"
+  case "$a" in
+    claude|qwen|letta) install_json_hook "$f" '["hooks"]' groups SessionStart "$h" ;;
+    gemini|qoder) install_json_hook "$f" '["hooks"]' groups SessionStart "$h" '{"matcher":"*"}' ;;
+    devin) install_json_hook "$f" '["hooks"]' groups SessionStart "$h" '{"matcher":""}' ;;
+    codex)
+      install_json_hook "$f" '["hooks"]' groups SessionStart "$h"
+      codex_enable_hooks "$d/config.toml"
+      CODEX_STATUS="$(codex_hook_status "$f" "$d/config.toml")"
+      ;;
+    droid)
+      # Droid reads ~/.factory/hooks.json (events at the top level), and
+      # settings.json's "hooks" only when hooks.json doesn't exist.
+      if [ -f "$d/hooks.json" ]; then
+        install_json_hook "$f" '[]' groups SessionStart "$h"
+      else
+        install_json_hook "$f" '["hooks"]' groups SessionStart "$h"
+      fi
+      ;;
+    cursor)
+      [ -f "$f" ] || [ "$DRY_RUN" = 1 ] || { mkdir -p "$d" && echo '{"version":1}' > "$f"; }
+      install_json_hook "$f" '["hooks"]' flat sessionStart "$h"
+      ;;
+    grok) install_own_file "$f" "$(jq -n --argjson h "$h" '{hooks: {SessionStart: [{hooks: [$h]}]}}')" ;;
+    copilot)
+      install_own_file "$f" "$(jq -n --arg c "$(hook_command copilot)" \
+        '{version: 1, hooks: {SessionStart: [{type: "command", bash: $c, timeoutSec: 10}]}}')"
+      ;;
+    antigravity)
+      # Antigravity keys hooks.json by hook name; ours is "rex-agent-restore".
+      # The session starts with SessionStart; PreInvocation catches /fork.
+      local entry tmp
+      entry="$(jq -cn --argjson h "$h" '{SessionStart: [$h], PreInvocation: [$h]}')"
+      if [ -f "$f" ] && jq -e --argjson e "$entry" '.["rex-agent-restore"] == $e' "$f" >/dev/null 2>&1; then
+        note "already set up: $f"
+      elif [ -f "$f" ] && ! jq -e 'type == "object"' "$f" >/dev/null 2>&1; then
+        note "skipped $f: couldn't read it as JSON"
+      elif [ "$DRY_RUN" = 1 ]; then
+        note "would add a hook to $f"
+      else
+        tmp="$(mktemp "${TMPDIR:-/tmp}/rar.XXXXXX")" &&
+          { [ -f "$f" ] && cat "$f" || echo '{}'; } | jq --argjson e "$entry" '.["rex-agent-restore"] = $e' > "$tmp" &&
+          backup_file "$f" && replace_contents "$tmp" "$f" && note "added a hook to $f"
+      fi
+      ;;
+    kimi)
+      put_marked_block "$f" "$BLOCK_BEGIN" "$BLOCK_END" "[[hooks]]
+event = \"SessionStart\"
+command = $(toml_str "$(hook_command kimi)")
+timeout = 10"
+      ;;
+    opencode|pi|omp|kilo)
+      # Plugins only go into an agent's existing config folder.
+      if [ -d "$d" ]; then install_plugin "$a" "$f"; else note "skipped $(agent_label "$a"): $d doesn't exist yet (start it once, then run install again)"; fi
+      ;;
+    *) note "unknown agent: $a" ;;
+  esac
+}
+
+uninstall_agent() {
+  local a="$1" d f
+  d="$(agent_dir "$a")"
+  f="$(agent_hook_file "$a")"
+  case "$a" in
+    claude|codex|gemini|qoder|qwen|letta|devin|cursor) uninstall_json_hook "$f" '["hooks"]' ;;
+    droid)
+      uninstall_json_hook "$d/hooks.json" '[]'
+      uninstall_json_hook "$d/settings.json" '["hooks"]'
+      ;;
+    grok|copilot|opencode|pi|omp|kilo) remove_own_file "$f" ;;
+    antigravity)
+      if [ -f "$f" ] && jq -e 'has("rex-agent-restore")' "$f" >/dev/null 2>&1; then
+        if [ "$DRY_RUN" = 1 ]; then note "would remove the hook from $f"; else
+          local tmp
+          tmp="$(mktemp "${TMPDIR:-/tmp}/rar.XXXXXX")" && jq 'del(.["rex-agent-restore"])' "$f" > "$tmp" &&
+            backup_file "$f" && replace_contents "$tmp" "$f" && note "removed the hook from $f"
+        fi
+      fi
+      ;;
+    kimi) remove_marked_block "$f" "$BLOCK_BEGIN" "$BLOCK_END" ;;
+  esac
+}
+
+# Print "installed", "missing", or "absent" (agent not installed).
+agent_status() {
+  local a="$1" f
+  f="$(agent_hook_file "$a")"
+  case "$a" in
+    opencode|pi|omp|kilo|grok|copilot)
+      [ -f "$f" ] && grep -q 'rex-agent-restore' "$f" 2>/dev/null && { echo installed; return; } ;;
+    *)
+      [ -f "$f" ] && grep -Eq "$HOOK_RE" "$f" 2>/dev/null && { echo installed; return; } ;;
+  esac
+  if agent_present "$a"; then echo missing; else echo absent; fi
 }
 
 parse_install_flags() {
@@ -740,6 +1387,7 @@ parse_install_flags() {
   SHELLS=""
   DO_REX=1
   DRY_RUN=0
+  CODEX_STATUS=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --agents) AGENTS="$(printf '%s' "$2" | tr ',' ' ')"; shift 2 ;;
@@ -780,16 +1428,11 @@ cmd_install() {
 
   say ""
   say "Agents:"
-  [ -n "${AGENTS// /}" ] || note "no supported agents found (claude, codex, grok)"
+  [ -n "${AGENTS// /}" ] || note "no supported agents found"
   for a in $AGENTS; do
-    case "$a" in
-      claude) install_json_hook "$(claude_dir)/settings.json" claude ;;
-      codex)
-        install_json_hook "$(codex_dir)/hooks.json" codex
-        codex_enable_hooks "$(codex_dir)/config.toml"
-        ;;
-      grok) install_grok_hook "$(grok_dir)/hooks" ;;
-      *) note "unknown agent: $a" ;;
+    case " $KNOWN_AGENTS " in
+      *" $a "*) say "  $(agent_label "$a")"; install_agent "$a" | sed 's/^/  /' ;;
+      *) note "unknown agent: $a (supported: $KNOWN_AGENTS)" ;;
     esac
   done
 
@@ -838,8 +1481,15 @@ if ok_rar and type(rar) == \"table\" then rar.setup({ bin = \"$BIN_PATH\" }) end
     return 0
   fi
   say "Done. Open a new terminal (or run: exec \$SHELL) to load the shell part."
+  case " $AGENTS " in *" codex "*) CODEX_STATUS="$(codex_hook_status "$(agent_hook_file codex)" "$(codex_dir)/config.toml")" ;; esac
   case " $AGENTS " in
-    *" codex "*) say "Codex asks you to approve new hooks: run /hooks in Codex once and approve rex-agent-restore." ;;
+    *" codex "*)
+      if [ "$CODEX_STATUS" != approved ]; then
+        say ""
+        say "One step for Codex: Codex runs new hooks only after you approve them."
+        say "Open Codex, run /hooks, and approve the rex-agent-restore hook. (Only once.)"
+      fi
+      ;;
   esac
   say "Already-running agents start saving their chats the next time they start or resume."
 }
@@ -849,12 +1499,10 @@ cmd_uninstall() {
   DRY_RUN=0
   [ "${1:-}" = "--dry-run" ] && DRY_RUN=1
   say "Removing $PROG"
-  uninstall_json_hook "$(claude_dir)/settings.json"
-  uninstall_json_hook "$(codex_dir)/hooks.json"
-  if [ -f "$(grok_dir)/hooks/rex-agent-restore.json" ]; then
-    if [ "$DRY_RUN" = 1 ]; then note "would remove $(grok_dir)/hooks/rex-agent-restore.json"
-    else rm -f "$(grok_dir)/hooks/rex-agent-restore.json"; note "removed $(grok_dir)/hooks/rex-agent-restore.json"; fi
-  fi
+  local a
+  for a in $KNOWN_AGENTS; do
+    uninstall_agent "$a"
+  done
   remove_marked_block "$(zshrc_file)" "$BLOCK_BEGIN" "$BLOCK_END"
   remove_marked_block "$HOME/.bashrc" "$BLOCK_BEGIN" "$BLOCK_END"
   local rexcfg
@@ -880,18 +1528,16 @@ cmd_doctor() {
   if [ -n "${REX_BLOCK:-}" ]; then note "pane:     $REX_BLOCK"; else note "pane:     not inside Rex"; fi
   if [ -n "${REX_AGENT_RESTORE_SHELL_TOKEN:-}" ]; then note "shell:    integration loaded"; else note "shell:    integration NOT loaded in this shell"; fi
   for a in $KNOWN_AGENTS; do
-    case "$a" in
-      claude) f="$(claude_dir)/settings.json" ;;
-      codex) f="$(codex_dir)/hooks.json" ;;
-      grok) f="$(grok_dir)/hooks/rex-agent-restore.json" ;;
+    case "$(agent_status "$a")" in
+      installed)
+        if [ "$a" = codex ] && [ "$(codex_hook_status "$(agent_hook_file codex)" "$(codex_dir)/config.toml")" = pending ]; then
+          note "$(agent_label "$a"): installed, but not approved yet: run /hooks in Codex and approve it"; ok=0
+        else
+          note "$(agent_label "$a"): installed"
+        fi
+        ;;
+      missing) note "$(agent_label "$a"): NOT set up ($(agent_hook_file "$a"))"; ok=0 ;;
     esac
-    if [ -f "$f" ] && grep -Eq "$HOOK_RE" "$f" 2>/dev/null; then
-      note "$a: hook installed ($f)"
-    elif agent_present "$a"; then
-      note "$a: hook NOT installed"; ok=0
-    else
-      note "$a: not installed"
-    fi
   done
   if grep -qxF -- "$LUA_BEGIN" "$(rex_config_file)" 2>/dev/null; then
     note "rex actions: set up in $(rex_config_file)"
@@ -906,11 +1552,15 @@ usage() {
 $PROG $VERSION: bring AI agent chats back when Rex restores your panes.
 
 Usage:
-  $PROG install [--agents claude,codex,grok] [--shell zsh|bash] [--no-shell] [--no-rex] [--dry-run]
+  $PROG install [--agents a,b,...] [--shell zsh|bash] [--no-shell] [--no-rex] [--dry-run]
+      agents: $KNOWN_AGENTS
   $PROG uninstall [--dry-run]
   $PROG list [--json]           show saved chats
   $PROG resume [PANE_ID]        resume the saved chat in a pane (default: this pane)
   $PROG resume-all [--session S]  resume every saved chat whose pane is at a shell prompt
+  $PROG capture [--dry-run]     save the chats of agents running right now
+  $PROG import-herdr [--dry-run] [--workspace NAME] [--file PATH] [--force] [--reimport]
+                                recreate herdr's workspaces in Rex and resume their chats
   $PROG forget [PANE_ID|--all]  forget saved chats
   $PROG prune                   forget chats for panes that no longer exist
   $PROG doctor                  check the setup
@@ -925,9 +1575,8 @@ Used by the integrations:
 Settings (environment or $CONFIG_FILE):
   REX_AGENT_RESTORE_MODE=auto|prompt|off   resume automatically (default), type the
                                            command for you to run, or do nothing
-  REX_AGENT_RESTORE_CLAUDE_ARGS="..."      extra arguments when resuming Claude Code
-  REX_AGENT_RESTORE_CODEX_ARGS="..."       extra arguments when resuming Codex
-  REX_AGENT_RESTORE_GROK_ARGS="..."        extra arguments when resuming Grok Build
+  REX_AGENT_RESTORE_<AGENT>_ARGS="..."     extra arguments when resuming that agent,
+                                           e.g. REX_AGENT_RESTORE_CLAUDE_ARGS
   REX_AGENT_RESTORE_DISABLE=1              stop saving chats
   REX_AGENT_RESTORE_DEBUG=1                log hook decisions to $STATE_DIR/debug.log
 EOF
@@ -938,10 +1587,13 @@ main() {
   [ $# -gt 0 ] && shift
   case "$cmd" in
     hook) cmd_hook "$@" ;;
+    _agent-of) is_agent_name "$*" || true ;;
     restore-plan) cmd_restore_plan "$@" ;;
     resume-command) cmd_resume_command "$@" ;;
     resume) cmd_resume "$@" ;;
     resume-all) cmd_resume_all "$@" ;;
+    capture) cmd_capture "$@" ;;
+    import-herdr) cmd_import_herdr "$@" ;;
     list|ls) cmd_list "$@" ;;
     forget) cmd_forget "$@" ;;
     prune) cmd_prune "$@" ;;

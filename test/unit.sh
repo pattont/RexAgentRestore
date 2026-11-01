@@ -68,6 +68,8 @@ check "claude hook appended after the existing one" \
 check "other claude settings kept" '[ "$(jq -r .model "$HOME/.claude/settings.json")" = opus ] && [ "$(jq -r ".hooks.Stop[0].hooks[0].command" "$HOME/.claude/settings.json")" = stop-hook ]'
 check "codex hook appended" '[ "$(jq -r ".hooks.SessionStart | length" "$HOME/.codex/hooks.json")" = 2 ] && jq -e ".hooks.SessionStart[1].hooks[0].command | endswith(\"hook codex\")" "$HOME/.codex/hooks.json" >/dev/null'
 check "codex hooks feature turned on" 'grep -A3 "^\[features\]" "$HOME/.codex/config.toml" | grep -q "^hooks = true"'
+check "codex hook is never approved for you" '! grep -q "hooks.state" "$HOME/.codex/config.toml"'
+check "install tells you to approve it in Codex" 'echo "$out" | grep -q "/hooks"' "$out"
 check "codex config kept" 'grep -q "^multi_agent = true" "$HOME/.codex/config.toml" && grep -q "^model = \"gpt\"" "$HOME/.codex/config.toml"'
 check "grok hook file written" 'jq -e ".hooks.SessionStart[0].hooks[0].command | endswith(\"hook grok\")" "$HOME/.grok/hooks/rex-agent-restore.json" >/dev/null'
 check "zshrc sources the integration" 'grep -q "rex-agent-restore.zsh" "$HOME/.zshrc" && head -1 "$HOME/.zshrc" | grep -q "my zshrc"'
@@ -112,6 +114,43 @@ check "codex hooks=false is reported, not changed" 'echo "$out" | grep -q warnin
 out="$("$BIN" install --dry-run --agents claude 2>&1)"
 check "dry run changes nothing" '[ ! -e "$HOME/.claude/settings.json" ] && [ ! -e "$HOME/.zshrc" ]'
 
+echo "install: every agent"
+rm -rf "$HOME"; mkdir -p "$HOME"
+for d in .claude .codex .grok .gemini .copilot .cursor .factory .gemini/config .config/devin .kimi-code .qoder .qwen .letta .config/opencode .pi/agent .omp/agent .config/kilo; do mkdir -p "$HOME/$d"; done
+echo '{"theme":"dark"}' > "$HOME/.gemini/settings.json"
+echo '{"version":1,"hooks":{"sessionStart":[{"command":"other"}]}}' > "$HOME/.cursor/hooks.json"
+echo '{"SessionStart":[{"hooks":[{"type":"command","command":"other"}]}]}' > "$HOME/.factory/hooks.json"
+echo '{"other-hook":{"SessionStart":[{"type":"command","command":"x"}]}}' > "$HOME/.gemini/config/hooks.json"
+printf 'default_model = "k2"\n' > "$HOME/.kimi-code/config.toml"
+for f in "$HOME/.gemini/settings.json" "$HOME/.cursor/hooks.json" "$HOME/.factory/hooks.json" "$HOME/.gemini/config/hooks.json" "$HOME/.kimi-code/config.toml"; do cp "$f" "$f.orig"; done
+out="$("$BIN" install --no-shell --no-rex 2>&1)"
+check "install finds all 17 agents" '[ "$(echo "$out" | grep -c "^  [A-Za-z]")" -ge 17 ]' "$out"
+check "gemini: hook with matcher and ms timeout" 'jq -e ".theme == \"dark\" and .hooks.SessionStart[0].matcher == \"*\" and .hooks.SessionStart[0].hooks[0].timeout == 5000 and (.hooks.SessionStart[0].hooks[0].command | endswith(\"hook gemini\"))" "$HOME/.gemini/settings.json" >/dev/null'
+check "copilot: own hook file with bash key" 'jq -e ".version == 1 and (.hooks.SessionStart[0].bash | endswith(\"hook copilot\"))" "$HOME/.copilot/hooks/rex-agent-restore.json" >/dev/null'
+check "cursor: flat sessionStart entry added after others" 'jq -e ".version == 1 and .hooks.sessionStart[0].command == \"other\" and (.hooks.sessionStart[1].command | endswith(\"hook cursor\"))" "$HOME/.cursor/hooks.json" >/dev/null'
+check "droid: uses hooks.json when it exists" 'jq -e "(.SessionStart[1].hooks[0].command | endswith(\"hook droid\"))" "$HOME/.factory/hooks.json" >/dev/null && [ ! -e "$HOME/.factory/settings.json" ]'
+check "antigravity: named entry with SessionStart and PreInvocation" 'jq -e "has(\"other-hook\") and (.\"rex-agent-restore\".SessionStart[0].command | endswith(\"hook antigravity\")) and (.\"rex-agent-restore\".PreInvocation | length) == 1" "$HOME/.gemini/config/hooks.json" >/dev/null'
+check "devin: hook in config.json" 'jq -e ".hooks.SessionStart[0].hooks[0].command | endswith(\"hook devin\")" "$HOME/.config/devin/config.json" >/dev/null'
+check "kimi: TOML hook with only the allowed keys" 'grep -q "^\[\[hooks\]\]$" "$HOME/.kimi-code/config.toml" && grep -q "^event = \"SessionStart\"$" "$HOME/.kimi-code/config.toml" && grep -q "^command = \"'"'"'.*hook kimi\"$" "$HOME/.kimi-code/config.toml" && grep -q "^default_model" "$HOME/.kimi-code/config.toml"' "$(cat "$HOME/.kimi-code/config.toml")"
+check "qoder, qwen: hooks in settings.json" 'jq -e ".hooks.SessionStart[0].hooks[0].command | endswith(\"hook qoder\")" "$HOME/.qoder/settings.json" >/dev/null && jq -e ".hooks.SessionStart[0].hooks[0].command | endswith(\"hook qwen\")" "$HOME/.qwen/settings.json" >/dev/null'
+check "letta: quiet hook with ms timeout" 'jq -e ".hooks.SessionStart[0].hooks[0] | .quiet == true and .timeout == 10000" "$HOME/.letta/settings.json" >/dev/null'
+check "plugins written with this program's path" 'grep -qF "\"$BIN\"" "$HOME/.config/opencode/plugins/rex-agent-restore/tui.js" && grep -qF "\"$BIN\"" "$HOME/.pi/agent/extensions/rex-agent-restore.ts" && grep -qF "\"$BIN\"" "$HOME/.omp/agent/extensions/rex-agent-restore-omp.ts" && grep -qF "\"$BIN\"" "$HOME/.config/kilo/plugin/rex-agent-restore.js" && ! grep -rq __REX_AGENT_RESTORE_BIN__ "$HOME/.config" "$HOME/.pi" "$HOME/.omp"'
+if command -v node >/dev/null 2>&1; then
+  check "plugins are valid JavaScript" 'node --check "$HOME/.config/opencode/plugins/rex-agent-restore/tui.js" && node --check "$HOME/.config/kilo/plugin/rex-agent-restore.js"'
+fi
+out="$("$BIN" install --no-shell --no-rex 2>&1)"
+check "every agent install is idempotent" '[ "$(echo "$out" | grep -c "already set up")" -ge 17 ]' "$out"
+"$BIN" uninstall >/dev/null 2>&1
+for f in "$HOME/.gemini/settings.json" "$HOME/.cursor/hooks.json" "$HOME/.factory/hooks.json" "$HOME/.gemini/config/hooks.json"; do
+  check "uninstall restores $(basename "$(dirname "$f")")/$(basename "$f")" '[ "$(jq -S . "$f.orig")" = "$(jq -S . "$f")" ]' "$(cat "$f")"
+done
+check "uninstall restores kimi config" 'cmp -s "$HOME/.kimi-code/config.toml.orig" "$HOME/.kimi-code/config.toml"' "$(cat "$HOME/.kimi-code/config.toml")"
+check "uninstall removes plugins and own files" '[ ! -e "$HOME/.config/opencode/plugins/rex-agent-restore" ] && [ ! -e "$HOME/.pi/agent/extensions/rex-agent-restore.ts" ] && [ ! -e "$HOME/.copilot/hooks/rex-agent-restore.json" ]'
+check "nothing of ours is left anywhere" '! grep -rlE "rex-agent-restore.? hook" "$HOME" --include="*.json" --include="*.toml" --exclude="*.bak-rex-agent-restore" 2>/dev/null | grep -q .'
+rm -rf "$HOME"; mkdir -p "$HOME"
+out="$("$BIN" install --agents pi --no-shell --no-rex 2>&1)"
+check "plugins skip agents whose folder doesn't exist" 'echo "$out" | grep -q "doesn.t exist yet" && [ ! -e "$HOME/.pi" ]' "$out"
+
 echo "hook"
 B1=block:01a1aaaa-0000-7000-8000-000000000001
 F1="$STATE/01a1aaaa-0000-7000-8000-000000000001.json"
@@ -135,7 +174,16 @@ run_hook claude claude "$(jq -cn '{hook_event_name:"SessionStart", session_id:"s
 check "subagents are ignored" '[ "$(jq -r .chat_id "$F1")" = abc-2 ]'
 
 # claude -> shell -> claude -p (an agent started by another agent's tool)
-env REX_BLOCK=$B1 "$T/agents/claude" -c '"$1" -c "printf \"%s\" \"\$1\" | /bin/sh -c \"\\\"\$2\\\" hook claude\"; true" _ "$2" "$3"; true' _ "$T/agents/claude" "$(json SessionStart nested-1)" "$BIN"
+cat > "$T/nested.sh" <<'EOF'
+# $1 inner agent, $2 event json, $3 bin
+/bin/sh -c '"$0" -c "printf \"%s\" \"\$0\" | /bin/sh -c \"\\\"\$1\\\" hook claude\"; true" "$1" "$2"; true' "$1" "$2" "$3"
+EOF
+env REX_BLOCK=$B1 "$T/agents/claude" "$T/nested.sh" "$T/agents/claude" "$(json SessionStart nested-1)" "$BIN"
+# A launcher that starts a copy of itself counts as one agent.
+env REX_BLOCK=$B1 "$T/agents/claude" -c '"$1" -c "printf \"%s\" \"\$0\" | /bin/sh -c \"\\\"\$1\\\" hook claude\"; true" "$2" "$3"; true' _ "$T/agents/claude" "$(json SessionStart launcher-1)" "$BIN"
+check "an agent's launcher and the agent count once" '[ "$(jq -r .chat_id "$F1")" = launcher-1 ]'
+run_hook claude claude "$(json SessionStart abc-2 clear)" REX_BLOCK=$B1 REX_AGENT_RESTORE_SHELL_TOKEN=tok1
+env REX_BLOCK=$B1 "$T/agents/claude" "$T/nested.sh" "$T/agents/claude" "$(json SessionStart nested-1)" "$BIN"
 check "nested agents are ignored" '[ "$(jq -r .chat_id "$F1")" = abc-2 ]'
 
 rm -f "$F1"
@@ -164,6 +212,36 @@ echo 'REX_AGENT_RESTORE_DISABLE=1' > "$REX_AGENT_RESTORE_CONFIG"
 run_hook claude claude "$(json SessionStart disabled)" REX_BLOCK=$B1
 check "REX_AGENT_RESTORE_DISABLE in the config file turns recording off" '[ ! -e "$F1" ]'
 rm -f "$REX_AGENT_RESTORE_CONFIG"
+
+echo "hook: other agents"
+for a in gemini-node letta agy cursor-agent node; do :; done
+ln -s /bin/bash "$T/agents/letta"; ln -s /bin/bash "$T/agents/agy"; ln -s /bin/bash "$T/agents/cursor-agent"
+rm -f "$F1"
+# Gemini runs under node; it's recognized from its command line.
+env REX_BLOCK=$B1 "$T/agents/node" -c 'printf "%s" "$1" | /bin/sh -c "\"$2\" hook gemini"; true' /x/@google/gemini-cli/dist/index.js "$(json SessionStart gem-1)" "$BIN"
+check "gemini under node is recognized" '[ "$(jq -r .agent "$F1")/$(jq -r .chat_id "$F1")" = gemini/gem-1 ]'
+rm -f "$F1"
+run_hook letta letta "$(jq -cn --arg c "$CWD" '{event_type:"SessionStart", agent_id:"agent-7", conversation_id:"conv-9", working_directory:$c}')" REX_BLOCK=$B1
+check "letta: agent_id isn't treated as a subagent; conversation recorded" '[ "$(jq -r .chat_id "$F1")" = conv-9 ] && [ "$(jq -r .cwd "$F1")" = "$CWD" ]'
+run_hook letta letta "$(jq -cn '{event_type:"SessionStart", agent_id:"agent-7", conversation_id:"default"}')" REX_BLOCK=$B1
+check "letta: default conversation keeps its agent" '[ "$(jq -r .chat_id "$F1")" = default:agent-7 ]'
+check "letta: resume uses --conversation default --agent" '[ "$(REX_BLOCK=$B1 "$BIN" resume-command | sed "s/.* && //")" = "letta --conversation default --agent '"'"'agent-7'"'"'" ]'
+rm -f "$F1"
+out="$(run_hook agy antigravity "$(jq -cn --arg c "$CWD" '{conversationId:"agy-1", workspacePaths:[$c]}')" REX_BLOCK=$B1)"
+check "antigravity: hook prints {} as required" '[ "$out" = "{}" ]' "$out"
+check "antigravity: conversation and workspace recorded" '[ "$(jq -r .chat_id "$F1")" = agy-1 ] && [ "$(jq -r .cwd "$F1")" = "$CWD" ]'
+run_hook agy antigravity "$(jq -cn '{hookEventName:"PreInvocation", conversationId:"agy-2"}')" REX_BLOCK=$B1 >/dev/null
+check "antigravity: PreInvocation updates the conversation" '[ "$(jq -r .chat_id "$F1")" = agy-2 ]'
+rm -f "$F1"
+run_hook cursor-agent cursor "$(jq -cn --arg c "$CWD" '{hook_event_name:"sessionStart", session_id:"cur-1", workspace_roots:[$c], is_background_agent:true}')" REX_BLOCK=$B1
+check "cursor: background agents are ignored" '[ ! -e "$F1" ]'
+run_hook cursor-agent cursor "$(jq -cn --arg c "$CWD" '{hook_event_name:"sessionStart", session_id:"cur-1", workspace_roots:[$c]}')" REX_BLOCK=$B1
+check "cursor: chat recorded with its workspace" '[ "$(jq -r .chat_id "$F1")" = cur-1 ] && [ "$(jq -r .cwd "$F1")" = "$CWD" ]'
+rm -f "$F1"
+run_hook node cursor "$(json sessionStart ide-1)" REX_BLOCK=$B1
+check "cursor: the Cursor app's hooks are ignored" '[ ! -e "$F1" ]'
+run_hook claude gemini "$(json SessionStart mismatch)" REX_BLOCK=$B1
+check "an agent's hook inside a different agent is ignored" '[ ! -e "$F1" ]'
 
 echo "resume commands"
 mkdir -p "$T/fakebin"
