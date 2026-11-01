@@ -994,7 +994,8 @@ replace_contents() {
 
 hook_command() {
   local agent="$1"
-  printf '%s hook %s' "$(shq "$BIN_PATH")" "$agent"
+  # BIN_PATH is set by install; other commands (doctor) use this program's path.
+  printf '%s hook %s' "$(shq "${BIN_PATH:-${REX_AGENT_RESTORE_BIN:-$(self_path)}}")" "$agent"
 }
 
 HOOK_JQ_RE="rex-agent-restore'?\\s+hook\\s"

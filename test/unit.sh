@@ -67,6 +67,8 @@ check "claude hook appended after the existing one" \
   '[ "$(jq -r ".hooks.SessionStart | map(.hooks[].command) | join(\",\")" "$HOME/.claude/settings.json")" = "existing-claude-hook,'"'"'$BIN'"'"' hook claude" ]'
 check "other claude settings kept" '[ "$(jq -r .model "$HOME/.claude/settings.json")" = opus ] && [ "$(jq -r ".hooks.Stop[0].hooks[0].command" "$HOME/.claude/settings.json")" = stop-hook ]'
 check "codex hook appended" '[ "$(jq -r ".hooks.SessionStart | length" "$HOME/.codex/hooks.json")" = 2 ] && jq -e ".hooks.SessionStart[1].hooks[0].command | endswith(\"hook codex\")" "$HOME/.codex/hooks.json" >/dev/null'
+out="$("$BIN" doctor 2>&1)"
+check "doctor runs cleanly and says Codex still needs approval" '! echo "$out" | grep -q "unbound variable" && echo "$out" | grep -q "Codex: installed, but not approved yet"' "$out"
 check "codex hooks feature turned on" 'grep -A3 "^\[features\]" "$HOME/.codex/config.toml" | grep -q "^hooks = true"'
 check "codex hook is never approved for you" '! grep -q "hooks.state" "$HOME/.codex/config.toml"'
 check "install tells you to approve it in Codex" 'echo "$out" | grep -q "/hooks"' "$out"
