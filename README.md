@@ -103,25 +103,33 @@ welcome too.
   can't be tied to its pane.
 - **MastraCode:** its hooks don't reliably report the chat ID.
 
-## How it compares to herdr2rex
+## How it compares
 
-[herdr2rex](https://github.com/tornikegomareli/herdr2rex) is a great tool with
-a different goal: it moves workspaces **between** herdr and Rex, in either
-direction. Rex Agent Restore makes **Rex itself** bring your chats back, so
-after moving over you don't need herdr at all.
+Two other community projects connect herdr and Rex. Each takes a different
+approach, and each suits a different setup:
 
-| | herdr2rex | Rex Agent Restore |
-| --- | --- | --- |
-| Main job | Copy workspaces between herdr and Rex | Resume chats every time Rex restarts |
-| Import from herdr | ✅ Tabs, splits, folders, chats | ✅ Tabs, splits, folders, chats |
-| Chats you start in Rex survive a Rex restart | ❌ They open as plain shells (`--reverse` can carry Claude Code chats back into herdr) | ✅ 17 agents (see [Tested](#supported-agents)) |
-| Turn herdr off after moving | You can, but then nothing keeps your Rex chats | ✅ That's the point |
-| Going back to herdr | ✅ `--reverse` | ❌ Not a goal |
-| Re-run to pick up changes in herdr | ✅ Adds new tabs and panes | Imports each workspace once |
-| How it runs | When you run it | Automatically, through agent hooks and your shell |
+- [**Herdrex**](https://github.com/elonnzhang/Herdrex) runs a bridge that
+  serves a running herdr as a Rex host. Rex becomes a window onto herdr: your
+  panes and agents live in herdr, and herdr restores them.
+- [**herdr2rex**](https://github.com/tornikegomareli/herdr2rex) copies
+  workspaces **between** herdr and Rex, in either direction.
+- **Rex Agent Restore** makes **Rex itself** bring your chats back, so after
+  moving over you don't need herdr at all.
 
-Use herdr2rex if you want to keep using herdr and Rex side by side. Use Rex
-Agent Restore if you're moving to Rex for good.
+| | Herdrex | herdr2rex | Rex Agent Restore |
+| --- | --- | --- | --- |
+| Where your panes live | In herdr (shown in Rex) | In Rex, after you import | In Rex |
+| Agent chats after a restart | ✅ herdr restores them | ❌ Chats you start in Rex open as plain shells (`--reverse` can carry Claude Code chats back into herdr) | ✅ Rex panes resume them |
+| herdr must keep running | Yes, plus the bridge | No, but then nothing keeps your Rex chats | No: import once, then turn herdr off |
+| Background process | Yes (the bridge) | No | No |
+| Rex features | Some don't apply to herdr panes (floating layers, Lua scripts, client actions) | All | All |
+| Going back to herdr | Nothing to go back from | ✅ `--reverse` | ❌ Not a goal |
+
+**Which one to use:**
+- Herdrex, if you want to keep herdr as your engine and use Rex as the
+  window.
+- herdr2rex, if you want to keep using herdr and Rex side by side.
+- Rex Agent Restore, if you're moving to Rex for good.
 
 ## How it works
 
