@@ -18,7 +18,20 @@ git tag "v$v"
 git push origin HEAD "v$v"
 
 url="https://github.com/$repo/archive/refs/tags/v$v.tar.gz"
-sha="$(curl -fsSL "$url" | shasum -a 256 | awk '{print $1}')"
+# GitHub can take a moment to serve a new tag's tarball. Never accept an
+# empty or failed download.
+tarball="$(mktemp)"
+for i in 1 2 3 4 5 6 7 8 9 10; do
+  if curl -fsSL "$url" -o "$tarball" && [ -s "$tarball" ] && tar -tzf "$tarball" >/dev/null 2>&1; then
+    break
+  fi
+  rm -f "$tarball"; tarball="$(mktemp)"
+  sleep 6
+done
+[ -s "$tarball" ] && tar -tzf "$tarball" >/dev/null 2>&1 ||
+  { echo "couldn't download $url (is the repo public?). The formula was not updated." >&2; exit 1; }
+sha="$(shasum -a 256 < "$tarball" | awk '{print $1}')"
+rm -f "$tarball"
 sed -i '' "s|^  url \".*\"|  url \"$url\"|; s|^  sha256 \".*\"|  sha256 \"$sha\"|" "$formula"
 git commit -qam "Formula: v$v"
 git push origin HEAD
