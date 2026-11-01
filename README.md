@@ -12,6 +12,9 @@ Rex Agent Restore puts it back. Each pane resumes the same chat, in the same
 folder, as if Rex had never stopped. It works with 17 coding agents, and
 nothing runs in the background.
 
+> Rex Agent Restore is an independent, community project. It is not made by,
+> affiliated with, or endorsed by Superlogical (the makers of Rex) or herdr.
+
 ## Install
 
 ```sh
@@ -31,8 +34,10 @@ Then open a new terminal tab.
 
 ### Before your first restart
 
-Chats that were already open when you installed haven't been saved yet. Save
-them:
+Agents save their chat when it starts, so chats that were already open when
+you installed haven't been saved. `capture` finds the agents running in your
+Rex panes and looks up each one's chat ID from the agent's own session files,
+so those chats come back too:
 
 ```sh
 rex-agent-restore capture
@@ -53,34 +58,36 @@ It skips workspaces it has already imported.
 
 ## Supported agents
 
-| Agent | How it hooks in | Resumes with |
-| --- | --- | --- |
-| Claude Code | `SessionStart` hook | `claude --resume <id>` |
-| Codex | `SessionStart` hook (approve once in `/hooks`) | `codex resume <id>` |
-| OpenCode 2.x | TUI plugin | `opencode --session <id>` |
-| Grok Build | `SessionStart` hook | `grok --resume <id>` |
-| Gemini CLI | `SessionStart` hook | `gemini --resume <id>` |
-| GitHub Copilot CLI | `SessionStart` hook | `copilot --resume=<id>` |
-| Cursor Agent | `sessionStart` hook | `cursor-agent --resume <id>` |
-| Factory Droid | `SessionStart` hook | `droid --resume <id>` |
-| Antigravity CLI | `SessionStart` and `PreInvocation` hooks | `agy --conversation <id>` |
-| Devin CLI | `SessionStart` hook | `devin --resume <id>` |
-| Kimi Code | `SessionStart` hook | `kimi --session <id>` |
-| Qoder CLI | `SessionStart` hook | `qoder --resume <id>` |
-| Qwen Code | `SessionStart` hook | `qwen --resume <id>` |
-| Letta Code | `SessionStart` hook | `letta --conversation <id>` |
-| pi | extension | `pi --session <file>` |
-| oh-my-pi | extension | `omp --resume=<file>` |
-| Kilo Code CLI | plugin | `kilo --session <id>` |
+| Agent | Tested | How it hooks in | Resumes with |
+| --- | --- | --- | --- |
+| Claude Code | ✅ real test | `SessionStart` hook | `claude --resume <id>` |
+| OpenCode 2.x | ✅ real test | TUI plugin | `opencode --session <id>` |
+| Codex | 🧪 beta | `SessionStart` hook (approve once in `/hooks`) | `codex resume <id>` |
+| Grok Build | 🧪 beta | `SessionStart` hook | `grok --resume <id>` |
+| Gemini CLI | 🧪 beta | `SessionStart` hook | `gemini --resume <id>` |
+| GitHub Copilot CLI | 🧪 beta | `SessionStart` hook | `copilot --resume=<id>` |
+| Cursor Agent | 🧪 beta | `sessionStart` hook | `cursor-agent --resume <id>` |
+| Factory Droid | 🧪 beta | `SessionStart` hook | `droid --resume <id>` |
+| Antigravity CLI | 🧪 beta | `SessionStart` and `PreInvocation` hooks | `agy --conversation <id>` |
+| Devin CLI | 🧪 beta | `SessionStart` hook | `devin --resume <id>` |
+| Kimi Code | 🧪 beta | `SessionStart` hook | `kimi --session <id>` |
+| Qoder CLI | 🧪 beta | `SessionStart` hook | `qoder --resume <id>` |
+| Qwen Code | 🧪 beta | `SessionStart` hook | `qwen --resume <id>` |
+| Letta Code | 🧪 beta | `SessionStart` hook | `letta --conversation <id>` |
+| pi | 🧪 beta | extension | `pi --session <file>` |
+| oh-my-pi | 🧪 beta | extension | `omp --resume=<file>` |
+| Kilo Code CLI | 🧪 beta | plugin | `kilo --session <id>` |
 
-**How well each one is tested:**
-- **Against the real agent** (save, restart, resume): Claude Code and OpenCode.
-- **Every agent:** automated tests check its hook file format and its event
-  fields, built from that agent's own documentation and source.
+- **✅ real test:** run with the real agent through a full save, Rex restart, and
+  resume.
+- **🧪 beta:** built from the agent's own documentation and source. Automated
+  tests cover its hook file format and event fields, but it hasn't been run
+  end to end with the real agent yet.
 
 If an agent doesn't come back for you, please
 [open an issue](https://github.com/pattont/RexAgentRestore/issues) with the
-output of `REX_AGENT_RESTORE_DEBUG=1`.
+output of `REX_AGENT_RESTORE_DEBUG=1`. Reports that a beta agent works are
+welcome too.
 
 **Not supported yet:**
 - **Hermes Agent:** runs every chat in one shared background process, so a chat
@@ -116,24 +123,163 @@ The hook works out which agent is really running from the process tree. So:
 
 ## What it touches
 
-| File | Change |
-| --- | --- |
-| Each agent's hook settings (see the table above) | adds one hook entry, next to your existing hooks |
-| A plugin folder, for OpenCode, pi, oh-my-pi and Kilo | adds one file, `rex-agent-restore` |
-| `~/.zshrc` or `~/.bashrc` | one line that loads the shell integration |
-| `~/.config/rex/init.lua` | three Rex palette actions |
+`rex-agent-restore install` only sets up agents you have installed. Before it
+changes a file, it saves a copy next to it as `<file>.bak-rex-agent-restore`.
+It adds its entries after your existing ones and changes nothing else in the
+file. Running it again changes nothing.
 
 - **It never approves a hook for you.** Agents that ask you to trust or approve
   hooks, such as Codex, Gemini and Grok, still ask.
-- **Your files are backed up first**, as `<file>.bak-rex-agent-restore`.
-- **Other hooks are left alone.** Running `install` again changes nothing.
 - **It makes no network calls.** Saved chats are small JSON files in
   `~/.local/state/rex-agent-restore/`, readable only by you.
-- **`capture` and `import-herdr` only read** other tools' files: Claude Code's
-  per-process session files, Codex's thread database, and herdr's
-  `session.json`.
-- **You can preview and undo:** `rex-agent-restore install --dry-run` shows
-  every change, and `rex-agent-restore uninstall` removes all of it.
+- **Preview and undo:** `rex-agent-restore install --dry-run` lists every change
+  first, and `rex-agent-restore uninstall` removes every entry below.
+
+Every hook runs the same command, `'/opt/homebrew/bin/rex-agent-restore' hook <agent>`.
+That command reads the agent's event, saves the chat ID and folder for the Rex
+pane, prints nothing, and always exits successfully, so it can't block or break
+the agent. Outside Rex it does nothing.
+
+<details>
+<summary><b>Exact entries, file by file</b></summary>
+
+**Claude Code**: `~/.claude/settings.json` (or `$CLAUDE_CONFIG_DIR`). Adds to `hooks.SessionStart`:
+```json
+{ "hooks": [ { "type": "command", "command": "'/opt/homebrew/bin/rex-agent-restore' hook claude", "timeout": 10 } ] }
+```
+
+**Codex**: `~/.codex/hooks.json` (or `$CODEX_HOME`). Adds to `hooks.SessionStart`:
+```json
+{ "hooks": [ { "type": "command", "command": "'/opt/homebrew/bin/rex-agent-restore' hook codex", "timeout": 10 } ] }
+```
+In `~/.codex/config.toml`, it sets `hooks = true` under `[features]` if hooks
+aren't on yet, because Codex ignores `hooks.json` without it. If you've set it
+to `false`, it leaves it alone and tells you. It never writes `[hooks.state]`:
+you approve the hook in Codex with `/hooks`.
+
+**Grok Build**: a new file, `~/.grok/hooks/rex-agent-restore.json`:
+```json
+{ "hooks": { "SessionStart": [ { "hooks": [ { "type": "command", "command": "'/opt/homebrew/bin/rex-agent-restore' hook grok", "timeout": 10 } ] } ] } }
+```
+
+**Gemini CLI**: `~/.gemini/settings.json`. Adds to `hooks.SessionStart`:
+```json
+{ "matcher": "*", "hooks": [ { "name": "rex-agent-restore", "type": "command", "command": "'/opt/homebrew/bin/rex-agent-restore' hook gemini", "timeout": 5000 } ] }
+```
+
+**GitHub Copilot CLI**: a new file, `~/.copilot/hooks/rex-agent-restore.json` (or `$COPILOT_HOME`):
+```json
+{ "version": 1, "hooks": { "SessionStart": [ { "type": "command", "bash": "'/opt/homebrew/bin/rex-agent-restore' hook copilot", "timeoutSec": 10 } ] } }
+```
+
+**Cursor Agent**: `~/.cursor/hooks.json`. Adds to `hooks.sessionStart`:
+```json
+{ "command": "'/opt/homebrew/bin/rex-agent-restore' hook cursor" }
+```
+The Cursor app reads this file too. The hook ignores it there and only saves
+chats from `cursor-agent`.
+
+**Factory Droid**: `~/.factory/hooks.json` if you have one, otherwise
+`~/.factory/settings.json` under `hooks`. Adds to `SessionStart`:
+```json
+{ "hooks": [ { "type": "command", "command": "'/opt/homebrew/bin/rex-agent-restore' hook droid", "timeout": 10 } ] }
+```
+
+**Antigravity CLI**: `~/.gemini/config/hooks.json`. Adds one named entry, `rex-agent-restore`:
+```json
+{ "rex-agent-restore": {
+    "SessionStart":  [ { "type": "command", "command": "'/opt/homebrew/bin/rex-agent-restore' hook antigravity", "timeout": 10 } ],
+    "PreInvocation": [ { "type": "command", "command": "'/opt/homebrew/bin/rex-agent-restore' hook antigravity", "timeout": 10 } ] } }
+```
+`PreInvocation` catches the new conversation ID after `/fork`. This hook
+prints `{}`, because Antigravity requires a JSON reply.
+
+**Devin CLI**: `~/.config/devin/config.json`. Adds to `hooks.SessionStart`:
+```json
+{ "matcher": "", "hooks": [ { "type": "command", "command": "'/opt/homebrew/bin/rex-agent-restore' hook devin", "timeout": 10 } ] }
+```
+
+**Kimi Code**: `~/.kimi-code/config.toml` (or `$KIMI_CODE_HOME`). Appends a marked block:
+```toml
+# >>> rex-agent-restore >>>
+[[hooks]]
+event = "SessionStart"
+command = "'/opt/homebrew/bin/rex-agent-restore' hook kimi"
+timeout = 10
+# <<< rex-agent-restore <<<
+```
+
+**Qoder CLI**: `~/.qoder/settings.json`. Adds to `hooks.SessionStart`:
+```json
+{ "matcher": "*", "hooks": [ { "type": "command", "command": "'/opt/homebrew/bin/rex-agent-restore' hook qoder", "timeout": 10 } ] }
+```
+
+**Qwen Code**: `~/.qwen/settings.json`. Adds to `hooks.SessionStart`:
+```json
+{ "hooks": [ { "type": "command", "command": "'/opt/homebrew/bin/rex-agent-restore' hook qwen", "timeout": 10 } ] }
+```
+
+**Letta Code**: `~/.letta/settings.json`. Adds to `hooks.SessionStart`:
+```json
+{ "hooks": [ { "type": "command", "command": "'/opt/homebrew/bin/rex-agent-restore' hook letta", "timeout": 10000, "quiet": true } ] }
+```
+
+**OpenCode 2.x**: a new plugin, `~/.config/opencode/plugins/rex-agent-restore/tui.js`.
+It runs in the pane's OpenCode window and, when you open or switch chats, runs
+`rex-agent-restore hook opencode` with the chat ID.
+
+**pi**: a new extension, `~/.pi/agent/extensions/rex-agent-restore.ts`. On
+`session_start` it runs `rex-agent-restore hook pi` with the session file.
+
+**oh-my-pi**: a new extension, `~/.omp/agent/extensions/rex-agent-restore-omp.ts`.
+On `session_start`, `session_switch` and `session_branch` it runs
+`rex-agent-restore hook omp`. It skips subagents.
+
+**Kilo Code CLI**: a new plugin, `~/.config/kilo/plugin/rex-agent-restore.js`.
+It runs `rex-agent-restore hook kilo` when a chat is created or you send a
+message.
+
+The plugins do nothing outside Rex, never write to the agent's screen, and
+catch every error. Their source is in
+[`share/rex-agent-restore/plugins/`](share/rex-agent-restore/plugins/).
+
+**Your shell**: `~/.zshrc` (or `~/.bashrc`). Appends:
+```sh
+# >>> rex-agent-restore >>>
+[[ -r '/opt/homebrew/share/rex-agent-restore/rex-agent-restore.zsh' ]] && source '/opt/homebrew/share/rex-agent-restore/rex-agent-restore.zsh'
+# <<< rex-agent-restore <<<
+```
+[That file](share/rex-agent-restore/rex-agent-restore.zsh) does nothing
+outside Rex. Inside Rex it adds one prompt hook. The hook deletes a pane's
+saved chat when you quit the agent, and resumes the chat on the first prompt
+after Rex restores the pane.
+
+**Rex**: `~/.config/rex/init.lua`. Appends:
+```lua
+-- >>> rex-agent-restore >>>
+local ok_rar, rar = pcall(require, "rex_agent_restore")
+if ok_rar and type(rar) == "table" then rar.setup({ bin = "/opt/homebrew/bin/rex-agent-restore" }) end
+-- <<< rex-agent-restore <<<
+```
+It also links `~/.config/rex/rex_agent_restore.lua` to
+[the module](share/rex-agent-restore/rex-agent-restore.lua). The module adds
+the three palette actions.
+
+</details>
+
+### What `capture` and `import-herdr` read
+
+Moving your open chats into Rex means finding out which chat each agent is in.
+These two commands only read, and never change, another tool's files:
+
+- **`capture`**:
+  - For each agent running in a Rex pane, it reads Claude Code's
+    `~/.claude/sessions/<pid>.json`, which holds that process's chat ID.
+  - For Codex, it reads the thread list in `~/.codex/state_*.sqlite`.
+  - It reads one variable, `REX_AGENT_RESTORE_SHELL_TOKEN`, from the agent's
+    environment. That tells the shell integration the agent is its own.
+- **`import-herdr`**: reads `~/.config/herdr/session.json` to get your
+  workspaces, tabs, splits, and each pane's chat ID.
 
 ## Use
 
@@ -166,7 +312,7 @@ as environment variables.
 | `REX_AGENT_RESTORE_MODE=auto` | resume on its own (default) |
 | `REX_AGENT_RESTORE_MODE=prompt` | type the resume command and wait for you to press Enter |
 | `REX_AGENT_RESTORE_MODE=off` | do nothing; use the palette actions instead |
-| `REX_AGENT_RESTORE_<AGENT>_ARGS="..."` | extra arguments for that agent's resume command, e.g. `REX_AGENT_RESTORE_CLAUDE_ARGS="--dangerously-skip-permissions"` |
+| `REX_AGENT_RESTORE_<AGENT>_ARGS="..."` | extra arguments for that agent's resume command, e.g. `REX_AGENT_RESTORE_CLAUDE_ARGS="--model opus"` |
 | `REX_AGENT_RESTORE_DISABLE=1` | stop saving chats |
 | `REX_AGENT_RESTORE_DEBUG=1` | log hook decisions to `~/.local/state/rex-agent-restore/debug.log` |
 
