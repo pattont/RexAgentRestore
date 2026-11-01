@@ -13,7 +13,7 @@
 
 set -u
 
-VERSION="0.2.1"
+VERSION="0.2.2"
 
 # Rex runs actions with a minimal PATH; make sure the usual places are on it.
 PATH="$PATH:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$HOME/.local/bin"
