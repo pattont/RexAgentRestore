@@ -1153,26 +1153,30 @@ codex_enable_hooks() {
 # approval in config.toml as
 #   [hooks.state."<hooks.json path>:session_start:<group>:<handler>"]
 #   trusted_hash = "sha256:<hex>"
-# Prints "approved", "pending", or "unknown".
+# where the hash is SHA-256 of the hook's settings as sorted, compact JSON.
+# A hook that changed after you approved it has a different hash, and Codex
+# won't run it until you approve it again.
+# Prints "approved", "pending" (never approved), "modified", or "unknown".
 codex_hook_status() {
-  local hooks="$1" cfg="$2" cmd gi key header
-  cmd="$(hook_command codex)"
+  local hooks="$1" cfg="$2" gi key header saved want
   [ -f "$hooks" ] && [ -f "$cfg" ] || { echo unknown; return; }
-  gi="$(jq -r --arg cmd "$cmd" '[.hooks.SessionStart // [] | to_entries[] | select(.value.hooks[0].command == $cmd) | .key] | first // empty' "$hooks" 2>/dev/null)"
+  gi="$(jq -r --arg re "$HOOK_JQ_RE" '[.hooks.SessionStart // [] | to_entries[] | select((.value.hooks[0].command // "") | test($re)) | .key] | first // empty' "$hooks" 2>/dev/null)"
   [ -n "$gi" ] || { echo unknown; return; }
   key="$(cd "$(dirname -- "$hooks")" && pwd)/$(basename -- "$hooks"):session_start:$gi:0"
   header="[hooks.state.\"$key\"]"
-  if awk -v h="$header" '
+  saved="$(awk -v h="$header" '
       $0 == h { in_t = 1; next }
       /^[[:space:]]*\[/ { in_t = 0 }
-      in_t && /^[[:space:]]*trusted_hash[[:space:]]*=/ { found = 1 }
-      END { exit !found }' "$cfg"; then
-    echo approved
-  else
-    echo pending
-  fi
+      in_t && /^[[:space:]]*trusted_hash[[:space:]]*=/ { sub(/^[^"]*"/, ""); sub(/".*$/, ""); print; exit }' "$cfg")"
+  [ -n "$saved" ] || { echo pending; return; }
+  want="sha256:$(jq -cSj --argjson gi "$gi" '
+      .hooks.SessionStart[$gi].hooks[0]
+      | { event_name: "session_start",
+          hooks: [ { type: "command", command: .command, timeout: (.timeout // 600), async: (.async // false) }
+                   + (if .statusMessage then { statusMessage: .statusMessage } else {} end) ] }' "$hooks" |
+    shasum -a 256 | cut -c1-64)"
+  if [ "$saved" = "$want" ]; then echo approved; else echo modified; fi
 }
-
 
 # Replace (or add) the marked block in FILE with CONTENT.
 put_marked_block() {
@@ -1539,8 +1543,12 @@ cmd_doctor() {
   for a in $KNOWN_AGENTS; do
     case "$(agent_status "$a")" in
       installed)
-        if [ "$a" = codex ] && [ "$(codex_hook_status "$(agent_hook_file codex)" "$(codex_dir)/config.toml")" = pending ]; then
+        local cs=""
+        [ "$a" = codex ] && cs="$(codex_hook_status "$(agent_hook_file codex)" "$(codex_dir)/config.toml")"
+        if [ "$cs" = pending ]; then
           note "$(agent_label "$a"): installed, but not approved yet: run /hooks in Codex and approve it"; codex_pending=1
+        elif [ "$cs" = modified ]; then
+          note "$(agent_label "$a"): installed, but changed since you approved it: approve it again in /hooks"; codex_pending=1
         else
           note "$(agent_label "$a"): installed"
         fi

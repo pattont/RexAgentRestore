@@ -126,6 +126,18 @@ jq -n --arg old "'$BIN' hook codex" '{hooks: {SessionStart: [
 check "codex hook is named in /hooks (statusMessage)" 'jq -e ".hooks.SessionStart[1].hooks[0].statusMessage | startswith(\"Rex Agent Restore\")" "$HOME/.codex/hooks.json" >/dev/null'
 check "an older hook is updated where it is, not moved or duplicated" '[ "$(jq -c "[.hooks.SessionStart[].hooks[0].command | sub(\".*/\"; \"\")]" "$HOME/.codex/hooks.json")" = "[\"first\",\"rex-agent-restore'"'"' hook codex\",\"added-later\"]" ]' "$(jq -c . "$HOME/.codex/hooks.json")"
 
+echo "codex approval status (read-only)"
+HJ="$HOME/.codex/hooks.json"; CT="$HOME/.codex/config.toml"
+want="sha256:$(jq -cSj '.hooks.SessionStart[1].hooks[0] | {event_name: "session_start", hooks: [{type: "command", command: .command, timeout: .timeout, async: false, statusMessage: .statusMessage}]}' "$HJ" | shasum -a 256 | cut -c1-64)"
+printf '[hooks.state."%s:session_start:1:0"]\ntrusted_hash = "%s"\n' "$HJ" "$want" >> "$CT"
+out="$("$BIN" doctor 2>&1)"
+check "doctor: approved hook shows as installed" 'echo "$out" | grep -q "Codex: installed$"' "$out"
+sed -i '' "s/$want/sha256:0000/" "$CT"
+out="$("$BIN" doctor 2>&1)"
+check "doctor: hook changed since approval is reported" 'echo "$out" | grep -q "changed since you approved it"' "$out"
+cp "$CT" "$CT.before"; "$BIN" install --agents codex --no-shell --no-rex >/dev/null 2>&1
+check "install never writes an approval" 'cmp -s "$CT.before" "$CT"'
+
 echo "install: every agent"
 rm -rf "$HOME"; mkdir -p "$HOME"
 for d in .claude .codex .grok .gemini .copilot .cursor .factory .gemini/config .config/devin .kimi-code .qoder .qwen .letta .config/opencode .pi/agent .omp/agent .config/kilo; do mkdir -p "$HOME/$d"; done
