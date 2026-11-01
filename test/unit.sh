@@ -68,7 +68,7 @@ check "claude hook appended after the existing one" \
 check "other claude settings kept" '[ "$(jq -r .model "$HOME/.claude/settings.json")" = opus ] && [ "$(jq -r ".hooks.Stop[0].hooks[0].command" "$HOME/.claude/settings.json")" = stop-hook ]'
 check "codex hook appended" '[ "$(jq -r ".hooks.SessionStart | length" "$HOME/.codex/hooks.json")" = 2 ] && jq -e ".hooks.SessionStart[1].hooks[0].command | endswith(\"hook codex\")" "$HOME/.codex/hooks.json" >/dev/null'
 out="$("$BIN" doctor 2>&1)"
-check "doctor runs cleanly and says Codex still needs approval" '! echo "$out" | grep -q "unbound variable" && echo "$out" | grep -q "Codex: installed, but not approved yet"' "$out"
+check "doctor runs cleanly and says Codex still needs approval" '! echo "$out" | grep -q "unbound variable" && echo "$out" | grep -q "Codex: installed, but not approved yet" && echo "$out" | grep -q "and approve .Rex Agent Restore"' "$out"
 check "codex hooks feature turned on" 'grep -A3 "^\[features\]" "$HOME/.codex/config.toml" | grep -q "^hooks = true"'
 check "codex hook is never approved for you" '! grep -q "hooks.state" "$HOME/.codex/config.toml"'
 check "install tells you to approve it in Codex" 'echo "$out" | grep -q "/hooks"' "$out"
@@ -115,6 +115,16 @@ check "codex hooks=false is reported, not changed" 'echo "$out" | grep -q warnin
 
 out="$("$BIN" install --dry-run --agents claude 2>&1)"
 check "dry run changes nothing" '[ ! -e "$HOME/.claude/settings.json" ] && [ ! -e "$HOME/.zshrc" ]'
+
+echo "install: upgrading an existing hook"
+rm -rf "$HOME"; mkdir -p "$HOME/.codex"
+jq -n --arg old "'$BIN' hook codex" '{hooks: {SessionStart: [
+  {hooks: [{type: "command", command: "first"}]},
+  {hooks: [{type: "command", command: $old, timeout: 10}]},
+  {hooks: [{type: "command", command: "added-later"}]} ]}}' > "$HOME/.codex/hooks.json"
+"$BIN" install --agents codex --no-shell --no-rex >/dev/null 2>&1
+check "codex hook is named in /hooks (statusMessage)" 'jq -e ".hooks.SessionStart[1].hooks[0].statusMessage | startswith(\"Rex Agent Restore\")" "$HOME/.codex/hooks.json" >/dev/null'
+check "an older hook is updated where it is, not moved or duplicated" '[ "$(jq -c "[.hooks.SessionStart[].hooks[0].command | sub(\".*/\"; \"\")]" "$HOME/.codex/hooks.json")" = "[\"first\",\"rex-agent-restore'"'"' hook codex\",\"added-later\"]" ]' "$(jq -c . "$HOME/.codex/hooks.json")"
 
 echo "install: every agent"
 rm -rf "$HOME"; mkdir -p "$HOME"

@@ -22,7 +22,7 @@ class RexAgentRestore < Formula
       CLI, Cursor Agent, and more), adds a hook or plugin to each, a line to
       your ~/.zshrc, and palette actions to Rex. Files are backed up first.
 
-      Using Codex? Run /hooks in Codex once and approve rex-agent-restore.
+      Using Codex? Run /hooks in Codex once and approve "Rex Agent Restore".
       Before your first Rex restart, save the chats already open:
         rex-agent-restore capture
       Undo everything with:

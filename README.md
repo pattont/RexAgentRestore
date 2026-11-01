@@ -36,7 +36,7 @@ Then open a new terminal tab.
 - `rex-agent-restore install` finds the agents you have and sets each one up
   (see [What it touches](#what-it-touches)).
 - **Using Codex?** Codex runs a new hook only after you approve it. Run `/hooks`
-  in Codex once and approve `rex-agent-restore`.
+  in Codex once and approve "Rex Agent Restore".
 
 ### Before your first restart
 
@@ -179,8 +179,10 @@ the agent. Outside Rex it does nothing.
 
 **Codex**: `~/.codex/hooks.json` (or `$CODEX_HOME`). Adds to `hooks.SessionStart`:
 ```json
-{ "hooks": [ { "type": "command", "command": "'/opt/homebrew/bin/rex-agent-restore' hook codex", "timeout": 10 } ] }
+{ "hooks": [ { "type": "command", "command": "'/opt/homebrew/bin/rex-agent-restore' hook codex", "timeout": 10,
+               "statusMessage": "Rex Agent Restore: save this chat for Rex restarts" } ] }
 ```
+Codex shows `statusMessage` as the hook's name in `/hooks`.
 In `~/.codex/config.toml`, it sets `hooks = true` under `[features]` if hooks
 aren't on yet, because Codex ignores `hooks.json` without it. If you've set it
 to `false`, it leaves it alone and tells you. It never writes `[hooks.state]`:

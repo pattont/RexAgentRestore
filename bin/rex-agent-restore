@@ -1008,34 +1008,40 @@ HOOK_JQ_RE="rex-agent-restore'?\\s+hook\\s"
 # positions (Codex keys its approvals by position). If an identical hook is
 # already there, nothing changes.
 install_json_hook() {
-  local file="$1" root="$2" mode="$3" event="$4" handler="$5" extra="${6:-}" tmp
+  local file="$1" root="$2" mode="$3" event="$4" handler="$5" extra="${6:-}" tmp state
   [ -n "$extra" ] || extra='{}'
+  # state: "same" (our exact hook is there), "ours" (an older version of our
+  # hook is there), or "none".
+  state=none
   if [ -f "$file" ]; then
     jq -e 'type == "object"' "$file" >/dev/null 2>&1 ||
       { note "skipped $file: couldn't read it as JSON (comments aren't supported)"; return 1; }
-    if jq -e --argjson root "$root" --arg ev "$event" --argjson h "$handler" '
-        (getpath($root + [$ev]) // []) as $l
-        | any($l[]?; if has("hooks") then any(.hooks[]?; (.command // .bash) == ($h.command // $h.bash)) else (.command // .bash) == ($h.command // $h.bash) end)' \
-        "$file" >/dev/null 2>&1; then
-      note "already set up: $file"
-      return 0
-    fi
+    state="$(jq -r --argjson root "$root" --arg ev "$event" --argjson h "$handler" --arg re "$HOOK_JQ_RE" '
+      def ours: ((.command // .bash // "") | test($re));
+      [ (getpath($root + [$ev]) // [])[]? | if has("hooks") then .hooks[]? else . end ] as $hs
+      | if any($hs[]; . == $h) then "same" elif any($hs[]; ours) then "ours" else "none" end' "$file" 2>/dev/null)"
   fi
-  [ "$DRY_RUN" = 1 ] && { note "would add a $event hook to $file"; return 0; }
+  if [ "$state" = same ]; then
+    note "already set up: $file"
+    return 0
+  fi
+  [ "$DRY_RUN" = 1 ] && { note "would $( [ "$state" = ours ] && echo update || echo add ) the $event hook in $file"; return 0; }
   tmp="$(mktemp "${TMPDIR:-/tmp}/rar.XXXXXX")" || return 1
   { [ -f "$file" ] && cat "$file" || echo '{}'; } |
     jq --argjson root "$root" --arg mode "$mode" --arg ev "$event" --argjson h "$handler" \
-       --argjson extra "$extra" --arg re "$HOOK_JQ_RE" '
+       --argjson extra "$extra" --arg re "$HOOK_JQ_RE" --arg state "$state" '
       def ours: ((.command // .bash // "") | test($re));
-      def strip: if $mode == "groups"
-        then [ .[]? | .hooks = [ (.hooks // [])[] | select(ours | not) ] | select((.hooks | length) > 0) ]
-        else [ .[]? | select(ours | not) ] end;
+      # An older version of our hook is updated where it is, so hooks keep
+      # their positions (Codex keys its approvals by position).
+      def update: if $mode == "groups"
+        then [ .[]? | .hooks = [ (.hooks // [])[] | if ours then $h else . end ] ]
+        else [ .[]? | if ours then $h else . end ] end;
       def add: if $mode == "groups" then . + [ $extra + { hooks: [ $h ] } ] else . + [ $h ] end;
-      setpath($root + [$ev]; (getpath($root + [$ev]) // [] | strip | add))' > "$tmp" ||
+      setpath($root + [$ev]; (getpath($root + [$ev]) // [] | if $state == "ours" then update else add end))' > "$tmp" ||
     { rm -f "$tmp"; return 1; }
   backup_file "$file"
   replace_contents "$tmp" "$file"
-  note "added a $event hook to $file"
+  note "$( [ "$state" = ours ] && echo updated || echo added ) the $event hook in $file"
 }
 
 # uninstall_json_hook FILE ROOT: remove our hooks from every event under ROOT.
@@ -1108,6 +1114,8 @@ handler_json() {
     gemini) jq -cn --arg c "$cmd" '{name: "rex-agent-restore", type: "command", command: $c, timeout: 5000}' ;;
     cursor) jq -cn --arg c "$cmd" '{command: $c}' ;;
     letta) jq -cn --arg c "$cmd" '{type: "command", command: $c, timeout: 10000, quiet: true}' ;;
+    # Codex shows statusMessage as the hook's name in /hooks.
+    codex) jq -cn --arg c "$cmd" '{type: "command", command: $c, timeout: 10, statusMessage: "Rex Agent Restore: save this chat for Rex restarts"}' ;;
     *) jq -cn --arg c "$cmd" '{type: "command", command: $c, timeout: 10}' ;;
   esac
 }
@@ -1518,7 +1526,7 @@ cmd_uninstall() {
 }
 
 cmd_doctor() {
-  local ok=1 a share
+  local ok=1 codex_pending=0 a share
   share="$(share_dir)"
   say "$PROG $VERSION"
   note "program:  $(self_path)"
@@ -1532,7 +1540,7 @@ cmd_doctor() {
     case "$(agent_status "$a")" in
       installed)
         if [ "$a" = codex ] && [ "$(codex_hook_status "$(agent_hook_file codex)" "$(codex_dir)/config.toml")" = pending ]; then
-          note "$(agent_label "$a"): installed, but not approved yet: run /hooks in Codex and approve it"; ok=0
+          note "$(agent_label "$a"): installed, but not approved yet: run /hooks in Codex and approve it"; codex_pending=1
         else
           note "$(agent_label "$a"): installed"
         fi
@@ -1546,6 +1554,7 @@ cmd_doctor() {
     note "rex actions: not set up"
   fi
   [ "$ok" = 1 ] || say "Run '$PROG install' to fix the missing pieces."
+  [ "$codex_pending" = 0 ] || say "Open Codex, run /hooks, and approve \"Rex Agent Restore\"."
 }
 
 usage() {
