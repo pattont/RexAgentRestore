@@ -1,8 +1,8 @@
 class RexAgentRestore < Formula
   desc "Resume coding agent chats (Claude Code, Codex, OpenCode, ...) after Rex restarts"
   homepage "https://github.com/pattont/RexAgentRestore"
-  url "https://github.com/pattont/RexAgentRestore/archive/refs/tags/v0.2.0.tar.gz"
-  sha256 "401016b2c971849938782b84830716a759199fb65e59b963a9807504145b1d8b"
+  url "https://github.com/pattont/RexAgentRestore/archive/refs/tags/v0.2.1.tar.gz"
+  sha256 "36b6bfa7692e2007d26f0fc9d91214458ae5aed13513d76b740e0e3347d1d76f"
   license "MIT"
   head "https://github.com/pattont/RexAgentRestore.git", branch: "main"
 
