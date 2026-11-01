@@ -1,0 +1,958 @@
+#!/usr/bin/env bash
+# rex-agent-restore: bring AI agent chats back when Rex restores your panes.
+#
+# How it works:
+#   1. Each agent (Claude Code, Codex, Grok Build) runs `rex-agent-restore hook`
+#      when a chat starts. The hook saves the chat ID for the Rex pane it runs in.
+#   2. Your shell's prompt hook deletes that record when the agent exits
+#      normally, so only chats that were cut off by a restart are kept.
+#   3. When Rex restores a pane, the new shell finds the record for its pane
+#      and resumes the chat.
+#
+# Works with the bash 3.2 that ships with macOS.
+
+set -u
+
+VERSION="0.1.0"
+
+# Rex runs actions with a minimal PATH; make sure the usual places are on it.
+PATH="$PATH:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$HOME/.local/bin"
+PATH="$PATH:$HOME/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS"
+export PATH
+PROG="rex-agent-restore"
+
+STATE_DIR="${REX_AGENT_RESTORE_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/rex-agent-restore}"
+PANES_DIR="$STATE_DIR/panes"
+CONFIG_FILE="${REX_AGENT_RESTORE_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/rex-agent-restore/config}"
+
+KNOWN_AGENTS="claude codex grok"
+# Matches our hook command, quoted or not: '/path/rex-agent-restore' hook claude
+HOOK_RE="rex-agent-restore'?[[:space:]]+hook[[:space:]]"
+BLOCK_BEGIN="# >>> rex-agent-restore >>>"
+BLOCK_END="# <<< rex-agent-restore <<<"
+LUA_BEGIN="-- >>> rex-agent-restore >>>"
+LUA_END="-- <<< rex-agent-restore <<<"
+
+# ---------------------------------------------------------------- helpers
+
+die() { printf '%s: %s\n' "$PROG" "$*" >&2; exit 1; }
+say() { printf '%s\n' "$*"; }
+note() { printf '  %s\n' "$*"; }
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+need_jq() { have jq || die "jq is required (brew install jq)"; }
+
+# Single-quote a string for the shell.
+shq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+
+now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+
+load_config() {
+  # The config file is shell syntax: REX_AGENT_RESTORE_*=value lines.
+  # Values already set in the environment win.
+  [ -r "$CONFIG_FILE" ] || return 0
+  local line key
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in ''|'#'*) continue ;; esac
+    key="${line%%=*}"
+    case "$key" in
+      REX_AGENT_RESTORE_*) ;;
+      *) continue ;;
+    esac
+    if [ -z "$(eval "printf '%s' \"\${$key+x}\"")" ]; then
+      eval "$line"
+    fi
+  done < "$CONFIG_FILE"
+}
+
+# Path of this program without resolving symlinks, so Homebrew's stable
+# /opt/homebrew/bin path is used rather than a versioned Cellar path.
+self_path() {
+  local p="$0"
+  case "$p" in
+    */*) ;;
+    *) p="$(command -v -- "$p")" ;;
+  esac
+  local dir
+  dir="$(cd "$(dirname -- "$p")" && pwd)" || return 1
+  printf '%s/%s\n' "$dir" "$(basename -- "$p")"
+}
+
+# Resolve symlinks (used to find the real share directory).
+resolve_path() {
+  local p="$1" target
+  while [ -L "$p" ]; do
+    target="$(readlink -- "$p")"
+    case "$target" in
+      /*) p="$target" ;;
+      *) p="$(dirname -- "$p")/$target" ;;
+    esac
+  done
+  printf '%s/%s\n' "$(cd "$(dirname -- "$p")" && pwd -P)" "$(basename -- "$p")"
+}
+
+# Share dir as a stable path: <prefix>/share/rex-agent-restore, where prefix
+# is the parent of the bin dir the program was invoked from.
+share_dir() {
+  if [ -n "${REX_AGENT_RESTORE_SHARE_DIR:-}" ]; then
+    printf '%s\n' "$REX_AGENT_RESTORE_SHARE_DIR"
+    return
+  fi
+  local self bindir cand
+  self="$(self_path)"
+  bindir="$(dirname -- "$self")"
+  cand="$(cd "$bindir/.." && pwd)/share/rex-agent-restore"
+  if [ -d "$cand" ]; then
+    printf '%s\n' "$cand"
+    return
+  fi
+  # Fall back to the location next to the real file.
+  bindir="$(dirname -- "$(resolve_path "$self")")"
+  printf '%s\n' "$(cd "$bindir/.." && pwd)/share/rex-agent-restore"
+}
+
+block_key() {
+  local id="$1"
+  id="${id#block:}"
+  case "$id" in
+    ''|*/*|*..*) return 1 ;;
+  esac
+  printf '%s\n' "$id"
+}
+
+record_path() {
+  local key
+  key="$(block_key "$1")" || return 1
+  printf '%s/%s.json\n' "$PANES_DIR" "$key"
+}
+
+rexc() {
+  # Never start a Rex server as a side effect.
+  rex --autostart=false "$@"
+}
+
+# rexs SERVER ARGS...: run rex against SERVER, or the default server if empty.
+rexs() {
+  local server="$1"
+  shift
+  if [ -n "$server" ]; then
+    rexc -S "$server" "$@"
+  else
+    rexc "$@"
+  fi
+}
+
+tilde() {
+  case "$1" in
+    "$HOME") printf '~\n' ;;
+    "$HOME"/*) printf '~%s\n' "${1#"$HOME"}" ;;
+    *) printf '%s\n' "$1" ;;
+  esac
+}
+
+is_agent_name() {
+  local n
+  n="$(basename -- "$1")"
+  n="${n#-}"
+  case "$n" in
+    claude|claude[-_.]*) echo claude ;;
+    codex|codex[-_.]*) echo codex ;;
+    grok|grok[-_.]*) echo grok ;;
+    *) return 1 ;;
+  esac
+}
+
+is_shell_name() {
+  local n
+  n="$(basename -- "$1")"
+  n="${n#-}"
+  case "$n" in
+    zsh|bash|fish|sh|dash|ksh|tcsh|csh|nu|xonsh) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Print "AGENT PID COUNT" for the agent processes above this one.
+# AGENT and PID describe the nearest one. COUNT is how many agent processes
+# are in the chain; more than one means an agent was started from inside
+# another agent (a headless `claude -p` run by a tool, for example).
+find_agent_ancestor() {
+  # _REX_AGENT_RESTORE_STOP_PID (tests only) stops the walk at that process.
+  ps -axo pid=,ppid=,comm= 2>/dev/null | awk -v start="$$" -v stop="${_REX_AGENT_RESTORE_STOP_PID:-0}" '
+    {
+      pid = $1; ppid = $2
+      $1 = ""; $2 = ""
+      sub(/^[ \t]+/, "")
+      parent[pid] = ppid; comm[pid] = $0
+    }
+    function agent(c,   n) {
+      n = c; sub(/.*\//, "", n); sub(/^-/, "", n)
+      if (n ~ /^claude([-_.].*)?$/) return "claude"
+      if (n ~ /^codex([-_.].*)?$/) return "codex"
+      if (n ~ /^grok([-_.].*)?$/) return "grok"
+      return ""
+    }
+    END {
+      p = parent[start]; depth = 0; count = 0; first = ""; firstpid = 0
+      while (p != "" && p > 1 && p != stop && depth < 64) {
+        a = agent(comm[p])
+        if (a != "") {
+          count++
+          if (first == "") { first = a; firstpid = p }
+        }
+        p = parent[p]; depth++
+      }
+      printf "%s %s %d\n", (first == "" ? "-" : first), firstpid, count
+    }'
+}
+
+# ------------------------------------------------------------------- hook
+
+cmd_hook() {
+  local hint="${1:-}"
+  # Hooks must never print to stdout (Claude adds it to the model's context)
+  # and must never fail the agent.
+  exec 1>/dev/null
+  [ -n "${REX_BLOCK:-}" ] || return 0
+  have jq || return 0
+  load_config
+  [ "${REX_AGENT_RESTORE_DISABLE:-0}" = "1" ] && return 0
+
+  local input
+  input="$(cat 2>/dev/null || true)"
+  [ -n "$input" ] || input='{}'
+  printf '%s' "$input" | jq -e 'type == "object"' >/dev/null 2>&1 || input='{}'
+
+  local fields event subagent source sid cwd
+  fields="$(printf '%s' "$input" | jq -r '
+    [ (.hook_event_name // .hookEventName // ""),
+      ((.agent_id // .agentId // .parent_session_id // .parentSessionId // "") | tostring),
+      (.source // ""),
+      (.session_id // .sessionId // ""),
+      (.cwd // "")
+    ] | map(tostring | gsub("[\u001f\n]"; " ")) | join("\u001f")' 2>/dev/null)" || return 0
+  # Split on the ASCII unit separator: unlike a tab, it isn't whitespace,
+  # so empty fields are kept.
+  IFS=$'\037' read -r event subagent source sid cwd <<EOF
+$fields
+EOF
+
+  case "$event" in
+    ''|SessionStart|session_start|sessionStart) ;;
+    *) return 0 ;;
+  esac
+  # Subagents run inside the main chat; never record them.
+  [ -n "$subagent" ] && return 0
+
+  local found agent agent_pid count
+  found="$(find_agent_ancestor)"
+  read -r agent agent_pid count <<EOF
+$found
+EOF
+  if [ "${count:-0}" -gt 1 ]; then
+    debug "skip: nested agent chain ($found)"
+    return 0
+  fi
+  if [ "$agent" = "-" ] || [ -z "$agent" ]; then
+    agent="$hint"
+    agent_pid=0
+  fi
+  case " $KNOWN_AGENTS " in
+    *" $agent "*) ;;
+    *) debug "skip: unknown agent '$agent'"; return 0 ;;
+  esac
+
+  case "$agent" in
+    grok)
+      [ -n "${GROK_SESSION_ID:-}" ] && sid="$GROK_SESSION_ID"
+      ;;
+    codex)
+      # Codex passes its thread ID to child processes. A different ID means
+      # this hook belongs to a chat started from inside another Codex chat.
+      if [ -n "${CODEX_THREAD_ID:-}" ] && [ -n "$sid" ] && [ "$CODEX_THREAD_ID" != "$sid" ]; then
+        debug "skip: codex thread mismatch"
+        return 0
+      fi
+      ;;
+  esac
+  [ -n "$sid" ] || { debug "skip: no session id"; return 0; }
+  [ -n "$cwd" ] || cwd="$PWD"
+
+  local file tmp
+  file="$(record_path "$REX_BLOCK")" || return 0
+  mkdir -p "$PANES_DIR" 2>/dev/null || return 0
+  chmod 700 "$STATE_DIR" "$PANES_DIR" 2>/dev/null
+  tmp="$file.tmp.$$"
+  jq -cn \
+    --arg block "$REX_BLOCK" \
+    --arg session "${REX_SESSION:-}" \
+    --arg server "${REX_SERVER:-}" \
+    --arg agent "$agent" \
+    --arg chat "$sid" \
+    --arg cwd "$cwd" \
+    --arg source "$source" \
+    --arg token "${REX_AGENT_RESTORE_SHELL_TOKEN:-}" \
+    --argjson pid "${agent_pid:-0}" \
+    --arg at "$(now_iso)" \
+    '{version: 1, block_id: $block, rex_session: $session, rex_server: $server,
+      agent: $agent, chat_id: $chat, cwd: $cwd, source: $source,
+      shell_token: $token, agent_pid: $pid, updated_at: $at}' > "$tmp" 2>/dev/null \
+    && mv -f "$tmp" "$file" 2>/dev/null
+  rm -f "$tmp" 2>/dev/null
+  debug "recorded $agent $sid for $REX_BLOCK (source=$source)"
+
+  maybe_prune_in_background
+  return 0
+}
+
+debug() {
+  [ "${REX_AGENT_RESTORE_DEBUG:-0}" = "1" ] || return 0
+  mkdir -p "$STATE_DIR" 2>/dev/null
+  printf '%s %s\n' "$(now_iso)" "$*" >> "$STATE_DIR/debug.log" 2>/dev/null
+}
+
+maybe_prune_in_background() {
+  local stamp="$STATE_DIR/last-prune"
+  # At most once a day.
+  if [ -f "$stamp" ] && [ -z "$(find "$stamp" -mtime +0 2>/dev/null)" ]; then
+    return 0
+  fi
+  touch "$stamp" 2>/dev/null
+  # Detach completely so the agent doesn't wait on our output pipes.
+  ( "$(self_path)" prune --quiet </dev/null >/dev/null 2>&1 & ) </dev/null >/dev/null 2>&1
+}
+
+# ---------------------------------------------------------------- records
+
+record_field() { jq -r --arg k "$2" '.[$k] // empty | tostring' "$1" 2>/dev/null; }
+
+agent_resume_argv() {
+  # Print the resume command for AGENT and CHAT_ID, shell-quoted.
+  local agent="$1" chat="$2" extra=""
+  case "$agent" in
+    claude) extra="${REX_AGENT_RESTORE_CLAUDE_ARGS:-}"; printf 'claude --resume %s' "$(shq "$chat")" ;;
+    codex) extra="${REX_AGENT_RESTORE_CODEX_ARGS:-}"; printf 'codex resume %s' "$(shq "$chat")" ;;
+    grok) extra="${REX_AGENT_RESTORE_GROK_ARGS:-}"; printf 'grok --resume %s' "$(shq "$chat")" ;;
+    *) return 1 ;;
+  esac
+  [ -n "$extra" ] && printf ' %s' "$extra"
+  printf '\n'
+}
+
+resume_command_for() {
+  local file="$1" agent chat cwd cmd
+  agent="$(record_field "$file" agent)"
+  chat="$(record_field "$file" chat_id)"
+  cwd="$(record_field "$file" cwd)"
+  [ -n "$agent" ] && [ -n "$chat" ] || return 1
+  cmd="$(agent_resume_argv "$agent" "$chat")" || return 1
+  if [ -n "$cwd" ] && [ -d "$cwd" ]; then
+    printf 'cd -- %s && %s\n' "$(shq "$cwd")" "$cmd"
+  else
+    printf '%s\n' "$cmd"
+  fi
+}
+
+# Used by the shell integration on the first prompt of a restored pane.
+# Prints three lines: mode, a one-line description, and the command.
+cmd_restore_plan() {
+  local block="${1:-${REX_BLOCK:-}}" file mode agent chat cwd cmd
+  [ -n "$block" ] || return 1
+  need_jq
+  load_config
+  file="$(record_path "$block")" || return 1
+  [ -f "$file" ] || return 1
+  mode="${REX_AGENT_RESTORE_MODE:-auto}"
+  case "$mode" in auto|prompt|off) ;; *) mode=auto ;; esac
+  agent="$(record_field "$file" agent)"
+  chat="$(record_field "$file" chat_id)"
+  cwd="$(record_field "$file" cwd)"
+  cmd="$(resume_command_for "$file")" || return 1
+  if [ -n "$agent" ] && ! have "$agent"; then
+    # The agent isn't installed (or isn't on PATH); don't loop on it.
+    return 1
+  fi
+  printf '%s\n' "$mode"
+  printf 'resuming %s chat %s in %s\n' "$agent" "${chat:0:8}" "$(tilde "$cwd")"
+  printf '%s\n' "$cmd"
+}
+
+cmd_resume_command() {
+  local block="${1:-${REX_BLOCK:-}}" file
+  [ -n "$block" ] || die "no pane given and REX_BLOCK is not set"
+  need_jq
+  load_config
+  file="$(record_path "$block")" || die "bad pane ID: $block"
+  [ -f "$file" ] || return 1
+  resume_command_for "$file"
+}
+
+cmd_list() {
+  need_jq
+  local json=0
+  [ "${1:-}" = "--json" ] && json=1
+  local f any=0
+  for f in "$PANES_DIR"/*.json; do [ -f "$f" ] && any=1 && break; done
+  if [ "$json" = 1 ]; then
+    if [ "$any" = 0 ]; then echo '[]'; return; fi
+    jq -s '.' "$PANES_DIR"/*.json
+    return
+  fi
+  if [ "$any" = 0 ]; then
+    say "No saved agent chats."
+    return
+  fi
+  printf '%-10s %-7s %-38s %-20s %s\n' PANE AGENT CHAT UPDATED FOLDER
+  for f in "$PANES_DIR"/*.json; do
+    jq -r --arg home "$HOME" '[(.block_id | sub("^block:"; "") | .[-8:]), .agent, .chat_id, .updated_at,
+      (.cwd | if startswith($home) then "~" + .[($home|length):] else . end)] | @tsv' "$f" 2>/dev/null |
+      awk -F'\t' '{ printf "%-10s %-7s %-38s %-20s %s\n", $1, $2, $3, $4, $5 }'
+  done
+}
+
+cmd_forget() {
+  local target="${1:-${REX_BLOCK:-}}"
+  [ -n "$target" ] || die "usage: $PROG forget PANE_ID | --all"
+  if [ "$target" = "--all" ]; then
+    rm -f "$PANES_DIR"/*.json
+    say "Forgot all saved agent chats."
+    return
+  fi
+  local file
+  file="$(record_path "$target")" || die "bad pane ID: $target"
+  if [ -f "$file" ]; then
+    rm -f "$file"
+    say "Forgot the saved chat for ${target}."
+  else
+    # Allow short IDs (suffixes), like the ones `list` prints.
+    local m
+    m="$(ls "$PANES_DIR"/*"${target#block:}".json 2>/dev/null)"
+    [ -n "$m" ] || die "no saved chat for $target"
+    [ "$(printf '%s\n' "$m" | wc -l | tr -d ' ')" = 1 ] || die "$target matches more than one pane"
+    rm -f "$m"
+    say "Forgot the saved chat for $(basename "$m" .json)."
+  fi
+}
+
+# Status of a pane: "gone", "orphan", "unreachable", "shell", "agent", or "busy".
+# "gone" means the pane's session is still there but the pane isn't, so the
+# pane was closed. "orphan" means the session isn't on that server either:
+# it was closed too, or the record points at a different server. Orphans are
+# only cleaned up once they are old, so a wrong server can't wipe records.
+pane_status() {
+  local server="$1" session="$2" block="$3" out name argv0 rc
+  if [ -n "$session" ]; then
+    out="$(rexs "$server" block call -s "$session" -b "$block" process 2>&1)"
+  else
+    out="$(rexs "$server" block call -b "$block" process 2>&1)"
+  fi
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    case "$out" in
+      *"not found"*)
+        if [ -n "$session" ] && rexs "$server" session inspect "$session" --json >/dev/null 2>&1; then
+          echo gone
+        else
+          echo orphan
+        fi
+        ;;
+      *) echo unreachable ;;
+    esac
+    return
+  fi
+  name="$(printf '%s' "$out" | jq -r '.foreground.name // empty' 2>/dev/null)"
+  argv0="$(printf '%s' "$out" | jq -r '.foreground.argv0 // empty' 2>/dev/null)"
+  if is_shell_name "$name" || is_shell_name "$argv0"; then
+    echo shell
+  elif is_agent_name "$name" >/dev/null || is_agent_name "$argv0" >/dev/null; then
+    echo agent
+  else
+    echo busy
+  fi
+}
+
+cmd_prune() {
+  need_jq
+  have rex || return 0
+  local quiet=0
+  [ "${1:-}" = "--quiet" ] && quiet=1
+  local f block session server st removed=0
+  for f in "$PANES_DIR"/*.json; do
+    [ -f "$f" ] || continue
+    block="$(record_field "$f" block_id)"
+    session="$(record_field "$f" rex_session)"
+    server="$(record_field "$f" rex_server)"
+    st="$(pane_status "$server" "$session" "$block")"
+    if [ "$st" = gone ] || { [ "$st" = orphan ] && [ -n "$(find "$f" -mtime +30 2>/dev/null)" ]; }; then
+      rm -f "$f"
+      removed=$((removed + 1))
+    fi
+  done
+  [ "$quiet" = 1 ] || say "Removed $removed saved chat(s) for panes that no longer exist."
+}
+
+resume_one() {
+  local f="$1" block session server st cmd
+  block="$(record_field "$f" block_id)"
+  session="$(record_field "$f" rex_session)"
+  server="$(record_field "$f" rex_server)"
+  st="$(pane_status "$server" "$session" "$block")"
+  case "$st" in
+    shell)
+      cmd="$(resume_command_for "$f")" || return 1
+      if [ -n "$session" ]; then
+        rexs "$server" send -s "$session" -b "$block" "$cmd"$'\r' >/dev/null || return 1
+      else
+        rexs "$server" send -b "$block" "$cmd"$'\r' >/dev/null || return 1
+      fi
+      say "resumed ${block#block:}: $cmd"
+      ;;
+    agent) say "skipped ${block#block:}: an agent is already running there" ;;
+    busy) say "skipped ${block#block:}: another program is running there" ;;
+    gone) rm -f "$f"; say "removed ${block#block:}: the pane no longer exists" ;;
+    orphan) say "skipped ${block#block:}: its session isn't on this Rex server" ;;
+    *) say "skipped ${block#block:}: couldn't reach its Rex server" ;;
+  esac
+}
+
+cmd_resume() {
+  need_jq
+  have rex || die "rex is not on PATH"
+  load_config
+  local block="" session=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --block|-b) block="$2"; shift 2 ;;
+      --session|-s) session="$2"; shift 2 ;;
+      *) block="$1"; shift ;;
+    esac
+  done
+  [ -n "$block" ] || block="${REX_BLOCK:-}"
+  [ -n "$block" ] || die "usage: $PROG resume PANE_ID"
+  local f
+  f="$(record_path "$block")" || die "bad pane ID: $block"
+  [ -f "$f" ] || die "no saved chat for this pane"
+  resume_one "$f"
+}
+
+cmd_resume_all() {
+  need_jq
+  have rex || die "rex is not on PATH"
+  load_config
+  local session="" f s n=0
+  case "${1:-}" in
+    --session|-s) session="${2:-}" ;;
+  esac
+  for f in "$PANES_DIR"/*.json; do
+    [ -f "$f" ] || continue
+    if [ -n "$session" ]; then
+      s="$(record_field "$f" rex_session)"
+      [ "$s" = "$session" ] || continue
+    fi
+    resume_one "$f"
+    n=$((n + 1))
+  done
+  [ "$n" -gt 0 ] || say "No saved agent chats to resume."
+}
+
+cmd_shell_init() {
+  local shell="${1:-}" share
+  share="$(share_dir)"
+  case "$shell" in
+    zsh|bash) printf 'source %s\n' "$(shq "$share/rex-agent-restore.$shell")" ;;
+    *) die "usage: $PROG shell-init zsh|bash" ;;
+  esac
+}
+
+# ---------------------------------------------------------------- install
+
+backup_file() {
+  local f="$1"
+  [ -f "$f" ] || return 0
+  cp -p "$f" "$f.bak-rex-agent-restore" 2>/dev/null
+}
+
+# Overwrite FILE with the contents of TMP, keeping symlinks and permissions.
+replace_contents() {
+  local tmp="$1" f="$2"
+  if [ -e "$f" ]; then
+    cat "$tmp" > "$f" && rm -f "$tmp"
+  else
+    mkdir -p "$(dirname -- "$f")" && mv -f "$tmp" "$f"
+  fi
+}
+
+hook_command() {
+  local agent="$1"
+  printf '%s hook %s' "$(shq "$BIN_PATH")" "$agent"
+}
+
+# Add our SessionStart hook to a Claude-style or Codex-style hooks JSON file.
+# The hook is appended so the positions of existing hooks don't change
+# (Codex keys its hook approvals by position).
+install_json_hook() {
+  local file="$1" agent="$2" cmd tmp
+  cmd="$(hook_command "$agent")"
+  if [ -f "$file" ]; then
+    jq -e 'type == "object"' "$file" >/dev/null 2>&1 || { note "skipped $file: not a JSON object"; return 1; }
+    if jq -e --arg cmd "$cmd" 'any(.hooks.SessionStart[]?.hooks[]?; .command == $cmd)' "$file" >/dev/null 2>&1; then
+      note "already set up: $file"
+      return 0
+    fi
+  fi
+  [ "$DRY_RUN" = 1 ] && { note "would add a SessionStart hook to $file"; return 0; }
+  tmp="$(mktemp "${TMPDIR:-/tmp}/rar.XXXXXX")" || return 1
+  { [ -f "$file" ] && cat "$file" || echo '{}'; } | jq --arg cmd "$cmd" --arg re "rex-agent-restore'?\\s+hook\\s" '
+    .hooks = (.hooks // {})
+    | .hooks.SessionStart = (
+        [ (.hooks.SessionStart // [])[]
+          | .hooks = [ (.hooks // [])[] | select(((.command // "") | test($re)) | not) ]
+          | select((.hooks | length) > 0) ]
+        + [ { hooks: [ { type: "command", command: $cmd, timeout: 10 } ] } ]
+      )' > "$tmp" || { rm -f "$tmp"; return 1; }
+  backup_file "$file"
+  replace_contents "$tmp" "$file"
+  note "added a SessionStart hook to $file"
+}
+
+uninstall_json_hook() {
+  local file="$1" tmp
+  [ -f "$file" ] || return 0
+  jq -e --arg re "rex-agent-restore'?\\s+hook\\s" 'any(.hooks.SessionStart[]?.hooks[]?; (.command // "") | test($re))' "$file" >/dev/null 2>&1 || return 0
+  [ "$DRY_RUN" = 1 ] && { note "would remove the hook from $file"; return 0; }
+  tmp="$(mktemp "${TMPDIR:-/tmp}/rar.XXXXXX")" || return 1
+  jq --arg re "rex-agent-restore'?\\s+hook\\s" '
+    .hooks.SessionStart = [ (.hooks.SessionStart // [])[]
+      | .hooks = [ (.hooks // [])[] | select(((.command // "") | test($re)) | not) ]
+      | select((.hooks | length) > 0) ]
+    | if (.hooks.SessionStart | length) == 0 then del(.hooks.SessionStart) else . end
+    | if (.hooks | length) == 0 then del(.hooks) else . end' "$file" > "$tmp" || { rm -f "$tmp"; return 1; }
+  backup_file "$file"
+  replace_contents "$tmp" "$file"
+  note "removed the hook from $file"
+}
+
+# Make sure Codex's hooks feature is on.
+codex_enable_hooks() {
+  local cfg="$1" tmp
+  if [ -f "$cfg" ] && awk '
+      /^[[:space:]]*\[/ { sect = $0; gsub(/[[:space:]]/, "", sect) }
+      sect == "[features]" && /^[[:space:]]*hooks[[:space:]]*=/ { found = 1 }
+      END { exit !found }' "$cfg"; then
+    if awk '
+        /^[[:space:]]*\[/ { sect = $0; gsub(/[[:space:]]/, "", sect) }
+        sect == "[features]" && /^[[:space:]]*hooks[[:space:]]*=[[:space:]]*true/ { ok = 1 }
+        END { exit !ok }' "$cfg"; then
+      return 0
+    fi
+    note "warning: $cfg sets [features] hooks to something other than true; Codex won't run the hook."
+    return 0
+  fi
+  [ "$DRY_RUN" = 1 ] && { note "would turn on [features] hooks in $cfg"; return 0; }
+  tmp="$(mktemp "${TMPDIR:-/tmp}/rar.XXXXXX")" || return 1
+  if [ -f "$cfg" ] && grep -Eq '^[[:space:]]*\[features\][[:space:]]*$' "$cfg"; then
+    awk '{ print } /^[[:space:]]*\[features\][[:space:]]*$/ && !done { print "hooks = true"; done = 1 }' "$cfg" > "$tmp"
+  else
+    { [ -f "$cfg" ] && cat "$cfg" && echo; printf '[features]\nhooks = true\n'; } > "$tmp"
+  fi
+  backup_file "$cfg"
+  replace_contents "$tmp" "$cfg"
+  note "turned on [features] hooks in $cfg"
+}
+
+install_grok_hook() {
+  local dir="$1" file tmp
+  file="$dir/rex-agent-restore.json"
+  tmp="$(mktemp "${TMPDIR:-/tmp}/rar.XXXXXX")" || return 1
+  jq -n --arg cmd "$(hook_command grok)" \
+    '{ hooks: { SessionStart: [ { hooks: [ { type: "command", command: $cmd, timeout: 10 } ] } ] } }' > "$tmp"
+  if [ -f "$file" ] && cmp -s "$tmp" "$file"; then
+    rm -f "$tmp"; note "already set up: $file"; return 0
+  fi
+  [ "$DRY_RUN" = 1 ] && { rm -f "$tmp"; note "would write $file"; return 0; }
+  mkdir -p "$dir"
+  mv -f "$tmp" "$file"
+  note "wrote $file"
+}
+
+# Replace (or add) the marked block in FILE with CONTENT.
+put_marked_block() {
+  local file="$1" begin="$2" end="$3" content="$4" tmp
+  tmp="$(mktemp "${TMPDIR:-/tmp}/rar.XXXXXX")" || return 1
+  if [ -f "$file" ]; then
+    awk -v b="$begin" -v e="$end" '
+      $0 == b { skip = 1; next }
+      $0 == e { skip = 0; next }
+      !skip { print }' "$file" > "$tmp"
+    # Drop trailing blank lines left behind by a previous block.
+    printf '%s' "$(cat "$tmp")" > "$tmp.2" && mv -f "$tmp.2" "$tmp"
+    [ -s "$tmp" ] && printf '\n\n' >> "$tmp"
+  fi
+  printf '%s\n%s\n%s\n' "$begin" "$content" "$end" >> "$tmp"
+  if [ -f "$file" ] && cmp -s "$tmp" "$file"; then
+    rm -f "$tmp"; note "already set up: $file"; return 0
+  fi
+  [ "$DRY_RUN" = 1 ] && { rm -f "$tmp"; note "would update $file"; return 0; }
+  backup_file "$file"
+  replace_contents "$tmp" "$file"
+  note "updated $file"
+}
+
+remove_marked_block() {
+  local file="$1" begin="$2" end="$3" tmp
+  [ -f "$file" ] || return 0
+  grep -qxF -- "$begin" "$file" || return 0
+  [ "$DRY_RUN" = 1 ] && { note "would remove the block from $file"; return 0; }
+  tmp="$(mktemp "${TMPDIR:-/tmp}/rar.XXXXXX")" || return 1
+  awk -v b="$begin" -v e="$end" '
+    $0 == b { skip = 1; next }
+    $0 == e { skip = 0; next }
+    !skip { print }' "$file" > "$tmp"
+  printf '%s\n' "$(cat "$tmp")" > "$tmp.2" && mv -f "$tmp.2" "$tmp"
+  backup_file "$file"
+  replace_contents "$tmp" "$file"
+  note "removed the block from $file"
+}
+
+claude_dir() { printf '%s\n' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"; }
+codex_dir() { printf '%s\n' "${CODEX_HOME:-$HOME/.codex}"; }
+grok_dir() { printf '%s\n' "${GROK_HOME:-$HOME/.grok}"; }
+rex_config_file() {
+  if [ -n "${REX_CONFIG:-}" ]; then
+    printf '%s\n' "$REX_CONFIG"
+  else
+    printf '%s\n' "${XDG_CONFIG_HOME:-$HOME/.config}/rex/init.lua"
+  fi
+}
+zshrc_file() { printf '%s\n' "${ZDOTDIR:-$HOME}/.zshrc"; }
+
+agent_present() {
+  case "$1" in
+    claude) have claude || [ -d "$(claude_dir)" ] ;;
+    codex) have codex || [ -d "$(codex_dir)" ] ;;
+    grok) have grok || [ -d "$(grok_dir)" ] ;;
+  esac
+}
+
+parse_install_flags() {
+  AGENTS=""
+  SHELLS=""
+  DO_REX=1
+  DRY_RUN=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --agents) AGENTS="$(printf '%s' "$2" | tr ',' ' ')"; shift 2 ;;
+      --agents=*) AGENTS="$(printf '%s' "${1#*=}" | tr ',' ' ')"; shift ;;
+      --shell) SHELLS="$(printf '%s' "$2" | tr ',' ' ')"; shift 2 ;;
+      --shell=*) SHELLS="$(printf '%s' "${1#*=}" | tr ',' ' ')"; shift ;;
+      --no-shell) SHELLS="none"; shift ;;
+      --no-rex) DO_REX=0; shift ;;
+      --dry-run|-n) DRY_RUN=1; shift ;;
+      -h|--help) usage; exit 0 ;;
+      *) die "unknown option: $1" ;;
+    esac
+  done
+  if [ -z "$AGENTS" ]; then
+    local a
+    for a in $KNOWN_AGENTS; do
+      agent_present "$a" && AGENTS="$AGENTS $a"
+    done
+  fi
+  if [ -z "$SHELLS" ]; then
+    case "$(basename -- "${SHELL:-zsh}")" in
+      bash) SHELLS="bash" ;;
+      *) SHELLS="zsh" ;;
+    esac
+  fi
+}
+
+cmd_install() {
+  need_jq
+  parse_install_flags "$@"
+  BIN_PATH="${REX_AGENT_RESTORE_BIN:-$(self_path)}"
+  local share a s
+  share="$(share_dir)"
+  [ -f "$share/rex-agent-restore.zsh" ] || die "can't find the shell files in $share"
+
+  say "Setting up $PROG $VERSION"
+  [ "$DRY_RUN" = 1 ] && say "(dry run: nothing will be changed)"
+
+  say ""
+  say "Agents:"
+  [ -n "${AGENTS// /}" ] || note "no supported agents found (claude, codex, grok)"
+  for a in $AGENTS; do
+    case "$a" in
+      claude) install_json_hook "$(claude_dir)/settings.json" claude ;;
+      codex)
+        install_json_hook "$(codex_dir)/hooks.json" codex
+        codex_enable_hooks "$(codex_dir)/config.toml"
+        ;;
+      grok) install_grok_hook "$(grok_dir)/hooks" ;;
+      *) note "unknown agent: $a" ;;
+    esac
+  done
+
+  say ""
+  say "Shell:"
+  for s in $SHELLS; do
+    case "$s" in
+      none) note "skipped" ;;
+      zsh) put_marked_block "$(zshrc_file)" "$BLOCK_BEGIN" "$BLOCK_END" \
+             "[[ -r $(shq "$share/rex-agent-restore.zsh") ]] && source $(shq "$share/rex-agent-restore.zsh")" ;;
+      bash) put_marked_block "$HOME/.bashrc" "$BLOCK_BEGIN" "$BLOCK_END" \
+             "[[ -r $(shq "$share/rex-agent-restore.bash") ]] && source $(shq "$share/rex-agent-restore.bash")" ;;
+      *) note "unsupported shell: $s (zsh and bash are supported)" ;;
+    esac
+  done
+
+  if [ "$DO_REX" = 1 ]; then
+    say ""
+    say "Rex:"
+    local rexcfg rexdir link
+    rexcfg="$(rex_config_file)"
+    rexdir="$(dirname -- "$rexcfg")"
+    link="$rexdir/rex_agent_restore.lua"
+    if [ "$DRY_RUN" = 1 ]; then
+      note "would link $link"
+    else
+      mkdir -p "$rexdir"
+      ln -sfn "$share/rex-agent-restore.lua" "$link"
+      note "linked $link"
+    fi
+    put_marked_block "$rexcfg" "$LUA_BEGIN" "$LUA_END" \
+"local ok_rar, rar = pcall(require, \"rex_agent_restore\")
+if ok_rar and type(rar) == \"table\" then rar.setup({ bin = \"$BIN_PATH\" }) end"
+    if [ "$DRY_RUN" = 0 ] && have rex; then
+      if rexc config reload >/dev/null 2>&1; then
+        note "reloaded the Rex config"
+      else
+        note "Rex will load the actions the next time it reads its config (rex config reload)"
+      fi
+    fi
+  fi
+
+  say ""
+  if [ "$DRY_RUN" = 1 ]; then
+    say "Dry run finished. Run without --dry-run to make these changes."
+    return 0
+  fi
+  say "Done. Open a new terminal (or run: exec \$SHELL) to load the shell part."
+  case " $AGENTS " in
+    *" codex "*) say "Codex asks you to approve new hooks: run /hooks in Codex once and approve rex-agent-restore." ;;
+  esac
+  say "Already-running agents start saving their chats the next time they start or resume."
+}
+
+cmd_uninstall() {
+  need_jq
+  DRY_RUN=0
+  [ "${1:-}" = "--dry-run" ] && DRY_RUN=1
+  say "Removing $PROG"
+  uninstall_json_hook "$(claude_dir)/settings.json"
+  uninstall_json_hook "$(codex_dir)/hooks.json"
+  if [ -f "$(grok_dir)/hooks/rex-agent-restore.json" ]; then
+    if [ "$DRY_RUN" = 1 ]; then note "would remove $(grok_dir)/hooks/rex-agent-restore.json"
+    else rm -f "$(grok_dir)/hooks/rex-agent-restore.json"; note "removed $(grok_dir)/hooks/rex-agent-restore.json"; fi
+  fi
+  remove_marked_block "$(zshrc_file)" "$BLOCK_BEGIN" "$BLOCK_END"
+  remove_marked_block "$HOME/.bashrc" "$BLOCK_BEGIN" "$BLOCK_END"
+  local rexcfg
+  rexcfg="$(rex_config_file)"
+  remove_marked_block "$rexcfg" "$LUA_BEGIN" "$LUA_END"
+  if [ -L "$(dirname -- "$rexcfg")/rex_agent_restore.lua" ] && [ "$DRY_RUN" = 0 ]; then
+    rm -f "$(dirname -- "$rexcfg")/rex_agent_restore.lua"
+    note "removed $(dirname -- "$rexcfg")/rex_agent_restore.lua"
+  fi
+  [ "$DRY_RUN" = 0 ] && have rex && rexc config reload >/dev/null 2>&1
+  say "Done. Saved chat records are kept in $PANES_DIR (delete with: $PROG forget --all)."
+}
+
+cmd_doctor() {
+  local ok=1 a share
+  share="$(share_dir)"
+  say "$PROG $VERSION"
+  note "program:  $(self_path)"
+  note "share:    $share"
+  note "state:    $PANES_DIR"
+  have jq && note "jq:       $(command -v jq)" || { note "jq:       MISSING"; ok=0; }
+  have rex && note "rex:      $(command -v rex)" || note "rex:      not on PATH (needed for resume-all and prune)"
+  if [ -n "${REX_BLOCK:-}" ]; then note "pane:     $REX_BLOCK"; else note "pane:     not inside Rex"; fi
+  if [ -n "${REX_AGENT_RESTORE_SHELL_TOKEN:-}" ]; then note "shell:    integration loaded"; else note "shell:    integration NOT loaded in this shell"; fi
+  for a in $KNOWN_AGENTS; do
+    case "$a" in
+      claude) f="$(claude_dir)/settings.json" ;;
+      codex) f="$(codex_dir)/hooks.json" ;;
+      grok) f="$(grok_dir)/hooks/rex-agent-restore.json" ;;
+    esac
+    if [ -f "$f" ] && grep -Eq "$HOOK_RE" "$f" 2>/dev/null; then
+      note "$a: hook installed ($f)"
+    elif agent_present "$a"; then
+      note "$a: hook NOT installed"; ok=0
+    else
+      note "$a: not installed"
+    fi
+  done
+  if grep -qxF -- "$LUA_BEGIN" "$(rex_config_file)" 2>/dev/null; then
+    note "rex actions: set up in $(rex_config_file)"
+  else
+    note "rex actions: not set up"
+  fi
+  [ "$ok" = 1 ] || say "Run '$PROG install' to fix the missing pieces."
+}
+
+usage() {
+  cat <<EOF
+$PROG $VERSION: bring AI agent chats back when Rex restores your panes.
+
+Usage:
+  $PROG install [--agents claude,codex,grok] [--shell zsh|bash] [--no-shell] [--no-rex] [--dry-run]
+  $PROG uninstall [--dry-run]
+  $PROG list [--json]           show saved chats
+  $PROG resume [PANE_ID]        resume the saved chat in a pane (default: this pane)
+  $PROG resume-all [--session S]  resume every saved chat whose pane is at a shell prompt
+  $PROG forget [PANE_ID|--all]  forget saved chats
+  $PROG prune                   forget chats for panes that no longer exist
+  $PROG doctor                  check the setup
+  $PROG version
+
+Used by the integrations:
+  $PROG hook AGENT              agent SessionStart hook (reads the event on stdin)
+  $PROG restore-plan [PANE_ID]  what the shell integration runs in a restored pane
+  $PROG resume-command [PANE_ID]
+  $PROG shell-init zsh|bash
+
+Settings (environment or $CONFIG_FILE):
+  REX_AGENT_RESTORE_MODE=auto|prompt|off   resume automatically (default), type the
+                                           command for you to run, or do nothing
+  REX_AGENT_RESTORE_CLAUDE_ARGS="..."      extra arguments when resuming Claude Code
+  REX_AGENT_RESTORE_CODEX_ARGS="..."       extra arguments when resuming Codex
+  REX_AGENT_RESTORE_GROK_ARGS="..."        extra arguments when resuming Grok Build
+  REX_AGENT_RESTORE_DISABLE=1              stop saving chats
+  REX_AGENT_RESTORE_DEBUG=1                log hook decisions to $STATE_DIR/debug.log
+EOF
+}
+
+main() {
+  local cmd="${1:-help}"
+  [ $# -gt 0 ] && shift
+  case "$cmd" in
+    hook) cmd_hook "$@" ;;
+    restore-plan) cmd_restore_plan "$@" ;;
+    resume-command) cmd_resume_command "$@" ;;
+    resume) cmd_resume "$@" ;;
+    resume-all) cmd_resume_all "$@" ;;
+    list|ls) cmd_list "$@" ;;
+    forget) cmd_forget "$@" ;;
+    prune) cmd_prune "$@" ;;
+    install|setup) cmd_install "$@" ;;
+    uninstall) cmd_uninstall "$@" ;;
+    shell-init) cmd_shell_init "$@" ;;
+    doctor) cmd_doctor ;;
+    version|--version|-V) say "$PROG $VERSION" ;;
+    help|--help|-h) usage ;;
+    *) usage >&2; exit 2 ;;
+  esac
+}
+
+main "$@"
