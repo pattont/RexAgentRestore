@@ -5,7 +5,10 @@ set -u
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BIN="$ROOT/bin/rex-agent-restore"
-T="$(mktemp -d "${RAR_TEST_TMP:-${TMPDIR:-/tmp}}/rar-unit.XXXXXX")"
+tmp_root="${RAR_TEST_TMP:-${TMPDIR:-/tmp}}"
+# Normalize the path (no trailing slash, no symlinks) so it matches what
+# shells report as the working directory.
+T="$(cd "$(mktemp -d "${tmp_root%/}/rar-unit.XXXXXX")" && pwd -P)"
 trap 'rm -rf "$T"' EXIT
 
 PASS=0
