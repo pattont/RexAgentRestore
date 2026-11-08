@@ -7,12 +7,22 @@
 </p>
 
 <p align="center">
-  <img src=".github/assets/hero.svg" width="100%" alt="Three Rex windows. 1: Claude Code, Codex and OpenCode are mid-chat. 2: Rex restarts and every pane is a new shell. 3: with Rex Agent Restore, each pane resumes its chat." />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/hero-dark.svg">
+    <img src=".github/assets/hero-light.svg" width="100%" alt="A Rex window after a restart. Claude Code, Codex and OpenCode have each resumed their chat in their own pane, under a line reading 'rex-agent-restore: resuming … chat'.">
+  </picture>
 </p>
 
 [Rex](https://www.superlogical.com/rex) restores your sessions, tabs, panes,
 and scrollback after its server restarts, but each pane gets a fresh shell.
 The coding agent chat that was running there is gone.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/restart-dark.svg">
+    <img src=".github/assets/restart-light.svg" width="100%" alt="Two Rex windows after a Rex restart. Without Rex Agent Restore, all three panes are empty shell prompts. With it, Claude Code, Codex and OpenCode are back in the chats they were running.">
+  </picture>
+</p>
 
 Rex Agent Restore puts it back. Each pane resumes the same chat, in the same
 folder, as if Rex had never stopped. It works with 17 coding agents, and

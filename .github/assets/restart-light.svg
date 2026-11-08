@@ -1,0 +1,142 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="536" viewBox="0 0 1280 536" role="img" aria-labelledby="t d">
+<title id="t">What a Rex restart does to your agent chats</title>
+<desc id="d">Two Rex windows after the Rex server restarts. Without Rex Agent Restore, all three panes are empty shell prompts. With it, Claude Code, Codex and OpenCode are back in the chats they were running.</desc>
+<defs>
+<linearGradient id="win-r0" x1="0" y1="0" x2="0.35" y2="1">
+  <stop offset="0" stop-color="#F3E9F2"/><stop offset="1" stop-color="#EEE2C9"/>
+</linearGradient>
+<filter id="shadow-r0" x="-10%" y="-10%" width="120%" height="130%">
+  <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000" flood-opacity="0.16"/>
+</filter>
+<filter id="tabshadow-r0" x="-10%" y="-30%" width="120%" height="170%">
+  <feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-color="#000" flood-opacity="0.14"/>
+</filter>
+<filter id="paneshadow-r0" x="-5%" y="-5%" width="110%" height="115%">
+  <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#000" flood-opacity="0.08"/>
+</filter><linearGradient id="win-r1" x1="0" y1="0" x2="0.35" y2="1">
+  <stop offset="0" stop-color="#F3E9F2"/><stop offset="1" stop-color="#EEE2C9"/>
+</linearGradient>
+<filter id="shadow-r1" x="-10%" y="-10%" width="120%" height="130%">
+  <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000" flood-opacity="0.16"/>
+</filter>
+<filter id="tabshadow-r1" x="-10%" y="-30%" width="120%" height="170%">
+  <feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-color="#000" flood-opacity="0.14"/>
+</filter>
+<filter id="paneshadow-r1" x="-5%" y="-5%" width="110%" height="115%">
+  <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#000" flood-opacity="0.08"/>
+</filter>
+</defs>
+<circle cx="42" cy="34" r="12" fill="#CF4B57"/>
+<text x="42" y="39.5" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="700" text-anchor="middle">✕</text>
+<text x="64" y="40" fill="#1F2328" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="19" font-weight="700" text-anchor="start">Without Rex Agent Restore</text>
+<text x="64" y="64" fill="#59636E" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="400" text-anchor="start">Rex brings back your panes, but each one is a new shell.</text>
+<g transform="translate(30 92)">
+<rect width="596" height="410" rx="12" fill="url(#win-r0)" stroke="#D9CFD6" filter="url(#shadow-r0)"/>
+<circle cx="20" cy="20.0" r="6" fill="#FF5F57"/>
+<circle cx="40" cy="20.0" r="6" fill="#FEBC2E"/>
+<circle cx="60" cy="20.0" r="6" fill="#28C840"/>
+<rect x="92" y="11.0" width="16" height="10" rx="2" fill="none" stroke="#6E7076" stroke-width="1.3"/><line x1="95.5" y1="16.0" x2="100" y2="16.0" stroke="#6E7076" stroke-width="1.3"/>
+<text x="116" y="19.0" fill="#2A2D35" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="12.5" font-weight="600" text-anchor="start">api</text>
+<text x="116" y="32.0" fill="#6E7076" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="10.5" font-weight="400" text-anchor="start">This Mac</text>
+<rect x="186" y="7.0" width="110.8" height="26" rx="10" fill="#FFFFFF" filter="url(#tabshadow-r0)"/>
+<rect x="198" y="13.0" width="14" height="14" rx="3.5" fill="#24262C"/><path d="M201.5 17.5 l3 2.5 l-3 2.5" fill="none" stroke="#E8E8E8" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><line x1="205.5" y1="23.0" x2="208.5" y2="23.0" stroke="#E8E8E8" stroke-width="1.3" stroke-linecap="round"/>
+<clipPath id="tabclip-r0-0"><rect x="186" y="7.0" width="100.8" height="26"/></clipPath>
+<g clip-path="url(#tabclip-r0-0)"><text x="220" y="24.5" fill="#2A2D35" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" text-anchor="start">zsh ~/api</text></g>
+<text x="542" y="26.0" fill="#8A8C91" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="17" font-weight="400" text-anchor="middle">⌘</text>
+<path d="M570 13.0 v14 M563 20.0 h14" stroke="#8A8C91" stroke-width="1.6" stroke-linecap="round"/>
+<rect x="8.0" y="40.0" width="315.0" height="362.0" rx="10" fill="#FFFFFF" stroke="#E4E0E2" filter="url(#paneshadow-r0)"/>
+<clipPath id="pc-r0-0"><rect x="8.0" y="40.0" width="309.0" height="358.0" rx="10"/></clipPath>
+<g clip-path="url(#pc-r0-0)">
+<rect x="22" y="48.0" width="14" height="14" rx="3.5" fill="#24262C"/><path d="M25.5 52.5 l3 2.5 l-3 2.5" fill="none" stroke="#E8E8E8" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><line x1="29.5" y1="58.0" x2="32.5" y2="58.0" stroke="#E8E8E8" stroke-width="1.3" stroke-linecap="round"/>
+<text x="44.0" y="59.5" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="12.5" font-weight="600" fill="#2A2D35">zsh<tspan font-weight="400" fill="#6E7076">  ~/api</tspan></text>
+<text x="24" y="87" font-family="'SF Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11" xml:space="preserve"><tspan fill="#7A7C81">Last login: Fri Nov 7 09:12</tspan></text>
+<text x="24" y="103" font-family="'SF Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11" xml:space="preserve"><tspan fill="#2F6FD6">~/api </tspan><tspan fill="#3E8E3A">❯ </tspan></text>
+<rect x="76.8" y="94" width="6.6" height="13" fill="#272D35"/>
+</g>
+<rect x="331.0" y="40.0" width="257.0" height="177.0" rx="10" fill="#F7F6F5" stroke="#E4E0E2"/>
+<clipPath id="pc-r0-1"><rect x="331.0" y="40.0" width="251.0" height="173.0" rx="10"/></clipPath>
+<g clip-path="url(#pc-r0-1)">
+<rect x="345.0" y="48.0" width="14" height="14" rx="3.5" fill="#24262C"/><path d="M348.5 52.5 l3 2.5 l-3 2.5" fill="none" stroke="#E8E8E8" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><line x1="352.5" y1="58.0" x2="355.5" y2="58.0" stroke="#E8E8E8" stroke-width="1.3" stroke-linecap="round"/>
+<text x="367.0" y="59.5" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="12.5" font-weight="600" fill="#2A2D35">zsh<tspan font-weight="400" fill="#6E7076">  ~/api</tspan></text>
+<text x="347.0" y="87" font-family="'SF Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11" xml:space="preserve"><tspan fill="#7A7C81">Last login: Fri Nov 7 09:12</tspan></text>
+<text x="347.0" y="103" font-family="'SF Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11" xml:space="preserve"><tspan fill="#2F6FD6">~/api </tspan><tspan fill="#3E8E3A">❯ </tspan></text>
+<rect x="399.8" y="94" width="6.6" height="13" fill="#272D35"/>
+</g>
+<rect x="331.0" y="225.0" width="257.0" height="177.0" rx="10" fill="#F7F6F5" stroke="#E4E0E2"/>
+<clipPath id="pc-r0-2"><rect x="331.0" y="225.0" width="251.0" height="173.0" rx="10"/></clipPath>
+<g clip-path="url(#pc-r0-2)">
+<rect x="345.0" y="233.0" width="14" height="14" rx="3.5" fill="#24262C"/><path d="M348.5 237.5 l3 2.5 l-3 2.5" fill="none" stroke="#E8E8E8" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><line x1="352.5" y1="243.0" x2="355.5" y2="243.0" stroke="#E8E8E8" stroke-width="1.3" stroke-linecap="round"/>
+<text x="367.0" y="244.5" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="12.5" font-weight="600" fill="#2A2D35">zsh<tspan font-weight="400" fill="#6E7076">  ~/web</tspan></text>
+<text x="347.0" y="272.0" font-family="'SF Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11" xml:space="preserve"><tspan fill="#7A7C81">Last login: Fri Nov 7 09:12</tspan></text>
+<text x="347.0" y="288.0" font-family="'SF Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11" xml:space="preserve"><tspan fill="#2F6FD6">~/web </tspan><tspan fill="#3E8E3A">❯ </tspan></text>
+<rect x="399.8" y="279.0" width="6.6" height="13" fill="#272D35"/>
+</g>
+</g>
+<circle cx="666" cy="34" r="12" fill="#3E8E3A"/>
+<text x="666" y="39.5" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="700" text-anchor="middle">✓</text>
+<text x="688" y="40" fill="#1F2328" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="19" font-weight="700" text-anchor="start">With Rex Agent Restore</text>
+<text x="688" y="64" fill="#59636E" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="400" text-anchor="start">Each pane picks up the chat it was running.</text>
+<g transform="translate(654 92)">
+<rect width="596" height="410" rx="12" fill="url(#win-r1)" stroke="#D9CFD6" filter="url(#shadow-r1)"/>
+<circle cx="20" cy="20.0" r="6" fill="#FF5F57"/>
+<circle cx="40" cy="20.0" r="6" fill="#FEBC2E"/>
+<circle cx="60" cy="20.0" r="6" fill="#28C840"/>
+<rect x="92" y="11.0" width="16" height="10" rx="2" fill="none" stroke="#6E7076" stroke-width="1.3"/><line x1="95.5" y1="16.0" x2="100" y2="16.0" stroke="#6E7076" stroke-width="1.3"/>
+<text x="116" y="19.0" fill="#2A2D35" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="12.5" font-weight="600" text-anchor="start">api</text>
+<text x="116" y="32.0" fill="#6E7076" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="10.5" font-weight="400" text-anchor="start">This Mac</text>
+<rect x="186" y="7.0" width="197.20000000000002" height="26" rx="10" fill="#FFFFFF" filter="url(#tabshadow-r1)"/>
+<g stroke="#C2643F" stroke-width="1.9" stroke-linecap="round"><line x1="205.0" y1="20.0" x2="211.7" y2="20.0"/><line x1="205.0" y1="20.0" x2="208.5" y2="23.5"/><line x1="205.0" y1="20.0" x2="205.0" y2="26.6"/><line x1="205.0" y1="20.0" x2="201.5" y2="23.5"/><line x1="205.0" y1="20.0" x2="198.3" y2="20.0"/><line x1="205.0" y1="20.0" x2="201.5" y2="16.5"/><line x1="205.0" y1="20.0" x2="205.0" y2="13.4"/><line x1="205.0" y1="20.0" x2="208.5" y2="16.5"/></g>
+<clipPath id="tabclip-r1-0"><rect x="186" y="7.0" width="187.20000000000002" height="26"/></clipPath>
+<g clip-path="url(#tabclip-r1-0)"><text x="220" y="24.5" fill="#2A2D35" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" text-anchor="start">Refactor session auth</text></g>
+<text x="542" y="26.0" fill="#8A8C91" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="17" font-weight="400" text-anchor="middle">⌘</text>
+<path d="M570 13.0 v14 M563 20.0 h14" stroke="#8A8C91" stroke-width="1.6" stroke-linecap="round"/>
+<rect x="8.0" y="40.0" width="315.0" height="362.0" rx="10" fill="#FFFFFF" stroke="#E4E0E2" filter="url(#paneshadow-r1)"/>
+<clipPath id="pc-r1-0"><rect x="8.0" y="40.0" width="309.0" height="358.0" rx="10"/></clipPath>
+<g clip-path="url(#pc-r1-0)">
+<g stroke="#C2643F" stroke-width="1.9" stroke-linecap="round"><line x1="29.0" y1="55.0" x2="35.6" y2="55.0"/><line x1="29.0" y1="55.0" x2="32.5" y2="58.5"/><line x1="29.0" y1="55.0" x2="29.0" y2="61.6"/><line x1="29.0" y1="55.0" x2="25.5" y2="58.5"/><line x1="29.0" y1="55.0" x2="22.4" y2="55.0"/><line x1="29.0" y1="55.0" x2="25.5" y2="51.5"/><line x1="29.0" y1="55.0" x2="29.0" y2="48.4"/><line x1="29.0" y1="55.0" x2="32.5" y2="51.5"/></g>
+<text x="44.0" y="59.5" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="12.5" font-weight="600" fill="#2A2D35">Refactor session auth<tspan font-weight="400" fill="#6E7076"></tspan></text>
+<text x="24" y="87" font-family="'SF Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11" xml:space="preserve"><tspan fill="#7A7C81">rex-agent-restore: resuming claude chat </tspan></text>
+<text x="24" y="103" font-family="'SF Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11" xml:space="preserve"><tspan fill="#7A7C81">3f9a2c1e in ~/api</tspan></text>
+<text x="24" y="119" font-family="'SF Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11" xml:space="preserve"></text>
+<text x="24" y="135" font-family="'SF Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11" xml:space="preserve"><tspan fill="#7A7C81">&gt; </tspan><tspan fill="#272D35">refactor session auth to use rotating </tspan></text>
+<text x="24" y="151" font-family="'SF Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11" xml:space="preserve"><tspan fill="#272D35">refresh tokens</tspan></text>
+<text x="24" y="167" font-family="'SF Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11" xml:space="preserve"></text>
+<text x="24" y="183" font-family="'SF Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11" xml:space="preserve"><tspan fill="#3E8E3A">● </tspan><tspan fill="#272D35" font-weight="700">Read</tspan><tspan fill="#7A7C81"> 12 files</tspan></text>
+<text x="24" y="199" font-family="'SF Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11" xml:space="preserve"><tspan fill="#3E8E3A">● </tspan><tspan fill="#272D35" font-weight="700">Update</tspan><tspan fill="#272D35">(src/auth/session.ts)</tspan></text>
+<text x="24" y="215" font-family="'SF Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11" xml:space="preserve"><tspan fill="#7A7C81">  └ </tspan><tspan fill="#3E8E3A">+48</tspan><tspan fill="#7A7C81"> </tspan><tspan fill="#CF4B57">-31</tspan></text>
+<text x="24" y="231" font-family="'SF Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11" xml:space="preserve"><tspan fill="#3E8E3A">● </tspan><tspan fill="#272D35" font-weight="700">Bash</tspan><tspan fill="#272D35">(npm test -- auth)</tspan></text>
+<text x="24" y="247" font-family="'SF Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11" xml:space="preserve"><tspan fill="#7A7C81">  └ </tspan><tspan fill="#3E8E3A">✓ 38 passed</tspan></text>
+<text x="24" y="263" font-family="'SF Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11" xml:space="preserve"></text>
+<text x="24" y="279" font-family="'SF Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11" xml:space="preserve"><tspan fill="#272D35">● Sessions now rotate their refresh token </tspan></text>
+<text x="24" y="295" font-family="'SF Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11" xml:space="preserve"><tspan fill="#272D35">on every use. All 38 auth tests pass.</tspan></text>
+<text x="24" y="311" font-family="'SF Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11" xml:space="preserve"></text>
+<text x="24" y="327" font-family="'SF Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11" xml:space="preserve"><tspan fill="#C2643F">✻ Writing the migration…</tspan></text>
+</g>
+<rect x="331.0" y="40.0" width="257.0" height="177.0" rx="10" fill="#F7F6F5" stroke="#E4E0E2"/>
+<clipPath id="pc-r1-1"><rect x="331.0" y="40.0" width="251.0" height="173.0" rx="10"/></clipPath>
+<g clip-path="url(#pc-r1-1)">
+<polygon points="357.6,58.2 352.0,61.4 346.4,58.2 346.4,51.8 352.0,48.6 357.6,51.8" fill="none" stroke="#2A2D35" stroke-width="1.5" stroke-linejoin="round"/><circle cx="352.0" cy="55.0" r="1.8" fill="#2A2D35"/>
+<text x="367.0" y="59.5" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="12.5" font-weight="600" fill="#2A2D35">Add token parser tests<tspan font-weight="400" fill="#6E7076"></tspan></text>
+<text x="347.0" y="87" font-family="'SF Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11" xml:space="preserve"><tspan fill="#7A7C81">rex-agent-restore: resuming codex </tspan></text>
+<text x="347.0" y="103" font-family="'SF Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11" xml:space="preserve"><tspan fill="#7A7C81">chat 7b21e0d4 in ~/api</tspan></text>
+<text x="347.0" y="119" font-family="'SF Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11" xml:space="preserve"></text>
+<text x="347.0" y="135" font-family="'SF Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11" xml:space="preserve"><tspan fill="#7A7C81">› </tspan><tspan fill="#272D35">add tests for the token parser</tspan></text>
+<text x="347.0" y="151" font-family="'SF Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11" xml:space="preserve"></text>
+<text x="347.0" y="167" font-family="'SF Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11" xml:space="preserve"><tspan fill="#7A7C81">• </tspan><tspan fill="#272D35" font-weight="700">Ran </tspan><tspan fill="#2F6FD6">pytest tests/parser</tspan></text>
+<text x="347.0" y="183" font-family="'SF Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11" xml:space="preserve"><tspan fill="#7A7C81">  └ </tspan><tspan fill="#3E8E3A">42 passed</tspan><tspan fill="#7A7C81"> in 1.84s</tspan></text>
+</g>
+<rect x="331.0" y="225.0" width="257.0" height="177.0" rx="10" fill="#F7F6F5" stroke="#E4E0E2"/>
+<clipPath id="pc-r1-2"><rect x="331.0" y="225.0" width="251.0" height="173.0" rx="10"/></clipPath>
+<g clip-path="url(#pc-r1-2)">
+<rect x="346.0" y="234.0" width="12" height="12" rx="2.5" fill="none" stroke="#2A2D35" stroke-width="1.5"/><rect x="349.5" y="237.5" width="5" height="5" rx="1" fill="#2A2D35"/>
+<text x="367.0" y="244.5" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="12.5" font-weight="600" fill="#2A2D35">Fix flaky login test<tspan font-weight="400" fill="#6E7076"></tspan></text>
+<text x="347.0" y="272.0" font-family="'SF Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11" xml:space="preserve"><tspan fill="#7A7C81">rex-agent-restore: resuming </tspan></text>
+<text x="347.0" y="288.0" font-family="'SF Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11" xml:space="preserve"><tspan fill="#7A7C81">opencode chat ses_9c4f in ~/web</tspan></text>
+<text x="347.0" y="304.0" font-family="'SF Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11" xml:space="preserve"></text>
+<text x="347.0" y="320.0" font-family="'SF Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11" xml:space="preserve"><tspan fill="#2F8AA3">┃ </tspan><tspan fill="#272D35">fix the flaky login test in CI</tspan></text>
+<text x="347.0" y="336.0" font-family="'SF Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11" xml:space="preserve"></text>
+<text x="347.0" y="352.0" font-family="'SF Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11" xml:space="preserve"><tspan fill="#7A7C81">$ </tspan><tspan fill="#272D35">npx playwright test login</tspan></text>
+<text x="347.0" y="368.0" font-family="'SF Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="11" xml:space="preserve"><tspan fill="#3E8E3A">  20 passed</tspan><tspan fill="#7A7C81"> (31.4s)</tspan></text>
+</g>
+</g>
+</svg>
