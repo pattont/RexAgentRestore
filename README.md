@@ -13,8 +13,8 @@
   </picture>
 </p>
 
-[Rex](https://www.superlogical.com/rex) restores your sessions, tabs, panes,
-and scrollback after its server restarts, but each pane gets a fresh shell.
+[Rex](https://www.superlogical.com/rex) restores your sessions, tabs, panes
+and their folders after its server restarts, but each pane gets a fresh shell.
 The coding agent chat that was running there is gone.
 
 <p align="center">
@@ -140,6 +140,29 @@ approach, and each suits a different setup:
   window.
 - herdr2rex, if you want to keep using herdr and Rex side by side.
 - Rex Agent Restore, if you're moving to Rex for good.
+
+### rexurrect
+
+[**rexurrect**](https://github.com/cemcatik/rexurrect) is like tmux-resurrect
+for Rex. It saves snapshots of your sessions and rebuilds them after Rex
+restarts, with each pane's earlier output (scrollback) and last command. It
+resumes Claude Code and Codex chats too. Rex Agent Restore does one thing:
+it leaves the restore to Rex and brings back the agent chats in the panes Rex
+restored.
+
+| | rexurrect | Rex Agent Restore |
+| --- | --- | --- |
+| Agents it resumes | Claude Code and Codex (others if you write the definition) | 17, built in |
+| Scrollback and last command | ✅ | ❌ |
+| After a restart | Closes the sessions Rex restored and rebuilds them from its snapshot, with new pane IDs | Keeps the sessions and pane IDs Rex restored |
+| Background process | Yes: a save every 15 minutes | No |
+| Resuming | Types the resume command for you to run (running it is opt-in) | Runs it (`REX_AGENT_RESTORE_MODE=prompt` types it instead) |
+| Setup | Prints the hooks for you to add | `install` adds them, with backups and `--dry-run` |
+
+**Use one or the other, not both.** rexurrect closes the panes Rex restored
+and makes new ones. Rex Agent Restore saves each chat under its pane's ID, so
+it can't find the chats in the new panes, and agents other than Claude Code
+and Codex come back as plain shells.
 
 ## How it works
 
