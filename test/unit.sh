@@ -288,6 +288,40 @@ check "grok resume command" '[ "$(REX_BLOCK=$B1 "$BIN" resume-command | sed "s/.
 rm -f "$T/fakebin/grok"
 check "no plan when the agent isn't installed" '! REX_BLOCK=$B1 PATH="$T/fakebin:/usr/bin:/bin" "$BIN" restore-plan >/dev/null 2>&1'
 
+echo "capture"
+# A fake rex that reports one pane running oh-my-pi, and a process holding a
+# chat file open the way oh-my-pi does.
+cat > "$T/fakebin/rex" <<'EOF'
+#!/bin/sh
+case "$*" in
+  *" ls --json")          printf '{"sessions":[{"session_id":"session:cap"}]}\n' ;;
+  *" block ls "*"--json") printf '{"blocks":[{"block_id":"block:%s"}]}\n' "$FAKE_BLOCK" ;;
+  *" block call "*)       printf '{"foreground":{"name":"omp","argv0":"omp","pid":%s,"cwd":"%s"}}\n' "$FAKE_PID" "$FAKE_CWD" ;;
+esac
+EOF
+chmod +x "$T/fakebin/rex"
+CAPCWD="$T/cap proj"
+CAPDIR="$HOME/.omp/agent/sessions/-cap-proj"
+CAPCHAT="$CAPDIR/2026-11-10T03-11-16-839Z_01a1c370-4367-751c-9d05-1b7d968b5e13.jsonl"
+mkdir -p "$CAPCWD" "$CAPDIR"
+printf '{"type":"session","version":3,"id":"01a1c370-4367-751c-9d05-1b7d968b5e13","timestamp":"2026-11-10T03:11:16.839Z","cwd":"%s"}\n' "$CAPCWD" > "$CAPCHAT"
+# A subagent's chat sits one level down and must not be picked.
+mkdir -p "$CAPDIR/01a1c370-4367-751c-9d05-1b7d968b5e13"
+printf '{"type":"session","version":3,"id":"sub-1","timestamp":"2026-11-10T03:18:02.432Z","cwd":"%s"}\n' "$CAPCWD" > "$CAPDIR/01a1c370-4367-751c-9d05-1b7d968b5e13/Sub.jsonl"
+/bin/sh -c 'exec 9<"$1"; exec 8<"$2"; sleep 30' _ "$CAPCHAT" "$CAPDIR/01a1c370-4367-751c-9d05-1b7d968b5e13/Sub.jsonl" &
+CAP_PID=$!
+CAP_BLOCK=01a1cccc-0000-7000-8000-000000000002
+CAPF="$STATE/$CAP_BLOCK.json"
+out="$(FAKE_BLOCK=$CAP_BLOCK FAKE_PID=$CAP_PID FAKE_CWD="$CAPCWD" "$BIN" capture 2>&1)"
+check "capture: oh-my-pi chat found from the file it keeps open" '[ "$(jq -r ".agent + \" \" + .chat_id" "$CAPF" 2>/dev/null)" = "omp $CAPCHAT" ]' "$out"
+check "capture: oh-my-pi record keeps the pane's folder" '[ "$(jq -r .cwd "$CAPF")" = "$CAPCWD" ]'
+CAP_BLOCK=01a1cccc-0000-7000-8000-000000000003
+out="$(FAKE_BLOCK=$CAP_BLOCK FAKE_PID=$$ FAKE_CWD="$CAPCWD" "$BIN" capture 2>&1)"
+check "capture: oh-my-pi with no chat of its own isn't guessed" 'echo "$out" | grep -q "couldn.t find its chat ID" && [ ! -e "$STATE/$CAP_BLOCK.json" ]' "$out"
+kill "$CAP_PID" 2>/dev/null
+wait "$CAP_PID" 2>/dev/null
+rm -f "$CAPF"
+
 echo "list and forget"
 out="$("$BIN" list)"
 check "list shows the chat" 'echo "$out" | grep -q gx'

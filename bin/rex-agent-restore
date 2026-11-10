@@ -711,6 +711,27 @@ discover_chat_id() {
         and archived = 0 and source not like '%subagent%' and created_at >= $((start - 5))" 2>/dev/null)"
       [ "$(printf '%s\n' "$id" | grep -c .)" = 1 ] && printf '%s\n' "$id"
       ;;
+    omp)
+      # oh-my-pi keeps the chat's JSONL open for writing while it runs, so
+      # the open file names the chat. Subagent chats are written a folder
+      # down (sessions/<folder>/<chat>/<name>.jsonl), so only take files
+      # directly below sessions/. More than one means /new left the old
+      # file open: the one written most recently is the live chat.
+      have lsof || return 1
+      local dir path rest best="" best_m=0 m
+      dir="$(agent_dir omp)/sessions"
+      while IFS= read -r path; do
+        case "$path" in "$dir"/*) ;; *) continue ;; esac
+        rest="${path#"$dir"/}"
+        [ "${rest//[!\/]/}" = / ] || continue   # a subagent's chat is a folder down
+        case "$rest" in *.jsonl) ;; *) continue ;; esac
+        m="$(stat -f %m "$path" 2>/dev/null || stat -c %Y "$path" 2>/dev/null)" || continue
+        if [ "$m" -gt "$best_m" ]; then best="$path"; best_m="$m"; fi
+      done <<EOF
+$(lsof -p "$pid" -Fn 2>/dev/null | sed -n 's|^n||p')
+EOF
+      [ -n "$best" ] && printf '%s\n' "$best"
+      ;;
     *) return 1 ;;
   esac
 }
