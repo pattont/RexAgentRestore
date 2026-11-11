@@ -31,6 +31,15 @@ else
 fi
 export REX_AGENT_RESTORE_SHELL_TOKEN="$$-$RANDOM$RANDOM-${EPOCHSECONDS:-0}"
 
+# Did the agent end because something killed it, rather than because you quit
+# it? When Rex shuts down the agent is hung up on (129). When the Mac logs out
+# or restarts, every process gets SIGTERM (143) and then SIGKILL (137): the
+# agent exits, but an interactive shell ignores SIGTERM, so its prompt comes
+# back for a moment first. Either way the chat must be kept so it can resume.
+_rex_agent_restore_killed() {
+  (( $1 == 129 || $1 == 137 || $1 == 143 ))
+}
+
 _rex_agent_restore_run() {
   local plan mode desc cmd rest st
   plan=$("$_rex_agent_restore_bin" restore-plan 2>/dev/null) || return 0
@@ -55,9 +64,8 @@ _rex_agent_restore_run() {
   print -s -- "$cmd"
   eval "$cmd"
   st=$?
-  # The chat had its chance. Keep it only if the agent was hung up on,
-  # which is what happens when Rex shuts down.
-  (( st == 129 )) || command rm -f -- "$_rex_agent_restore_file"
+  # The chat had its chance. Keep it only if the agent was killed.
+  _rex_agent_restore_killed $st || command rm -f -- "$_rex_agent_restore_file"
   return 0
 }
 
@@ -68,7 +76,7 @@ _rex_agent_restore_precmd() {
     body=$(<"$_rex_agent_restore_file")
     if [[ -n $REX_AGENT_RESTORE_SHELL_TOKEN && $body == *"\"shell_token\":\"$REX_AGENT_RESTORE_SHELL_TOKEN\""* ]]; then
       # An agent started from this shell has exited.
-      (( st == 129 )) || command rm -f -- "$_rex_agent_restore_file"
+      _rex_agent_restore_killed $st || command rm -f -- "$_rex_agent_restore_file"
     elif (( _rex_agent_restore_first && ! _rex_agent_restore_nested )); then
       _rex_agent_restore_first=0
       _rex_agent_restore_run

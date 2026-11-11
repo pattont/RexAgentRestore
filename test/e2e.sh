@@ -144,6 +144,18 @@ first="$(chat_id "$B1")"
 R send -s "$SID" -b "$B1" $'\r'
 check "quitting the agent forgets the chat" 'wait_for 5 test ! -e "$(rec "$B1")"'
 
+# 1b. Logging out or restarting the Mac sends every process SIGTERM. The agent
+# exits but the interactive shell ignores it, so its prompt comes back first.
+wait_for 5 at_prompt "$B1"
+R send -s "$SID" -b "$B1" 'claude'$'\r'
+wait_for 5 test -s "$(rec "$B1")"
+kill -TERM "$(R block call -s "$SID" -b "$B1" process | jq -r '.foreground.pid')"
+wait_for 5 at_prompt "$B1"
+sleep 0.5
+check "an agent killed by SIGTERM keeps its chat" 'test -s "$(rec "$B1")"'
+R send -s "$SID" -b "$B1" 'true'$'\r'
+check "but the next command in that pane forgets it" 'wait_for 5 test ! -e "$(rec "$B1")"'
+
 # 2. A chat cut off by a server restart comes back.
 R send -s "$SID" -b "$B1" 'claude'$'\r'
 wait_for 5 test -s "$(rec "$B1")"
@@ -160,7 +172,7 @@ start_server
 check "claude chat resumes after restart" 'wait_for 15 log_has "claude resumed $c1"' "$(cat "$LOG")"
 check "codex chat resumes after restart" 'wait_for 15 log_has "codex resumed $c2"' "$(cat "$LOG")"
 check "resumed agent is running in the pane" 'wait_for 5 screen_has "$B1" "FAKE claude READY $c1"' "$(R capture -s "$SID" -b "$B1" --trim | tail -5)"
-check "resumed agent runs in the saved folder" '[ "$(R block call -s "$SID" -b "$B1" process | jq -r .foreground.cwd)" = "$D/proj dir" ]'
+check "resumed agent runs in the saved folder" '[ "$(R block call -s "$SID" -b "$B1" process | jq -r .foreground.cwd)" = "$(cd "$D/proj dir" && pwd -P)" ]'
 R send -s "$SID" -b "$B1" $'\r'
 R send -s "$SID" -b "$B2" $'\r'
 check "quitting a resumed agent forgets it" 'wait_for 5 test ! -e "$(rec "$B1")" && wait_for 5 test ! -e "$(rec "$B2")"'

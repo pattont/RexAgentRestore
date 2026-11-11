@@ -321,6 +321,12 @@ if command -v zsh >/dev/null 2>&1; then
   check "agent that exited normally is forgotten at the prompt" '[ "$out" = removed ]' "$out"
   out="$(REX_BLOCK=$B1 _REX_AGENT_RESTORE_OWNER= zsh -f -i -c "source '$ZS'; _rex_agent_restore_first=0; jq -cn --arg t \"\$REX_AGENT_RESTORE_SHELL_TOKEN\" '{shell_token:\$t}' > '$F1'; (exit 129); _rex_agent_restore_precmd; [[ -e '$F1' ]] && print kept || print removed" 2>&1)"
   check "agent that was hung up on is kept" '[ "$out" = kept ]' "$out"
+  for st in 137 143; do
+    out="$(REX_BLOCK=$B1 _REX_AGENT_RESTORE_OWNER= zsh -f -i -c "source '$ZS'; _rex_agent_restore_first=0; jq -cn --arg t \"\$REX_AGENT_RESTORE_SHELL_TOKEN\" '{shell_token:\$t}' > '$F1'; (exit $st); _rex_agent_restore_precmd; [[ -e '$F1' ]] && print kept || print removed" 2>&1)"
+    check "agent killed at logout or restart (exit $st) is kept" '[ "$out" = kept ]' "$out"
+  done
+  out="$(REX_BLOCK=$B1 _REX_AGENT_RESTORE_OWNER= zsh -f -i -c "source '$ZS'; _rex_agent_restore_first=0; jq -cn --arg t \"\$REX_AGENT_RESTORE_SHELL_TOKEN\" '{shell_token:\$t}' > '$F1'; (exit 130); _rex_agent_restore_precmd; [[ -e '$F1' ]] && print kept || print removed" 2>&1)"
+  check "agent quit with Ctrl+C (exit 130) is forgotten" '[ "$out" = removed ]' "$out"
   out="$(REX_BLOCK= zsh -f -i -c "source '$ZS'; print \${+functions[_rex_agent_restore_precmd]}" 2>&1)"
   check "outside Rex the integration does nothing" '[ "$out" = 0 ]' "$out"
 else

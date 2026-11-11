@@ -179,7 +179,8 @@ and Codex come back as plain shells.
    pane's ID (`$REX_BLOCK`), in `~/.local/state/rex-agent-restore/`.
 2. **Forget.** When you quit an agent normally, your shell's prompt comes back,
    and the shell integration deletes that pane's saved chat. When Rex shuts
-   down, the shell dies with the agent, so the saved chat stays.
+   down, or your Mac logs out or restarts, the agent is killed rather than
+   quit, so the saved chat stays.
 3. **Resume.** Rex keeps a pane's ID across restarts. When a restored pane's
    shell shows its first prompt and finds a saved chat, it runs the agent's
    resume command in the chat's folder and adds it to your shell history.

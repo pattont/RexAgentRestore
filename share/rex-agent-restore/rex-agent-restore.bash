@@ -22,6 +22,12 @@ else
 fi
 export REX_AGENT_RESTORE_SHELL_TOKEN="$$-$RANDOM$RANDOM-$(date +%s)"
 
+# Killed by a hang-up (Rex shut down), SIGTERM or SIGKILL (the Mac logging out
+# or restarting) rather than quit: keep the chat. See rex-agent-restore.zsh.
+_rex_agent_restore_killed() {
+  (( $1 == 129 || $1 == 137 || $1 == 143 ))
+}
+
 _rex_agent_restore_run() {
   local plan mode desc cmd st
   plan=$("$_rex_agent_restore_bin" restore-plan 2>/dev/null) || return 0
@@ -43,7 +49,7 @@ _rex_agent_restore_run() {
   history -s -- "$cmd"
   eval "$cmd"
   st=$?
-  (( st == 129 )) || command rm -f -- "$_rex_agent_restore_file"
+  _rex_agent_restore_killed $st || command rm -f -- "$_rex_agent_restore_file"
   return 0
 }
 
@@ -53,7 +59,7 @@ _rex_agent_restore_prompt() {
     local body
     body=$(<"$_rex_agent_restore_file")
     if [[ -n $REX_AGENT_RESTORE_SHELL_TOKEN && $body == *"\"shell_token\":\"$REX_AGENT_RESTORE_SHELL_TOKEN\""* ]]; then
-      (( st == 129 )) || command rm -f -- "$_rex_agent_restore_file"
+      _rex_agent_restore_killed $st || command rm -f -- "$_rex_agent_restore_file"
     elif (( _rex_agent_restore_first && ! _rex_agent_restore_nested )); then
       _rex_agent_restore_first=0
       _rex_agent_restore_run
