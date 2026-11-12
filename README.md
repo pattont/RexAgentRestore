@@ -349,6 +349,8 @@ These two commands only read, and never change, another tool's files:
   - For each agent running in a Rex pane, it reads Claude Code's
     `~/.claude/sessions/<pid>.json`, which holds that process's chat ID.
   - For Codex, it reads the thread list in `~/.codex/state_*.sqlite`.
+  - For oh-my-pi, it asks `lsof` which chat file under
+    `~/.omp/agent/sessions/` the process has open.
   - It reads one variable, `REX_AGENT_RESTORE_SHELL_TOKEN`, from the agent's
     environment. That tells the shell integration the agent is its own.
 - **`import-herdr`**: reads `~/.config/herdr/session.json` to get your
