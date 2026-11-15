@@ -321,6 +321,20 @@ check "capture: oh-my-pi with no chat of its own isn't guessed" 'echo "$out" | g
 kill "$CAP_PID" 2>/dev/null
 wait "$CAP_PID" 2>/dev/null
 rm -f "$CAPF"
+# lsof reports real paths, so a symlinked agent folder must still match.
+mkdir -p "$T/omp-real/agent/sessions/-cap-proj"
+ln -s "$T/omp-real" "$HOME/.omp-link"
+LINKCHAT="$T/omp-real/agent/sessions/-cap-proj/2026-11-10T04-00-00-000Z_01a1c370-0000-7000-8000-000000000009.jsonl"
+cp "$CAPCHAT" "$LINKCHAT"
+/bin/sh -c 'exec 9<"$1"; sleep 30' _ "$HOME/.omp-link/agent/sessions/-cap-proj/${LINKCHAT##*/}" &
+CAP_PID=$!
+CAP_BLOCK=01a1cccc-0000-7000-8000-000000000004
+CAPF="$STATE/$CAP_BLOCK.json"
+out="$(PI_CONFIG_DIR=.omp-link FAKE_BLOCK=$CAP_BLOCK FAKE_PID=$CAP_PID FAKE_CWD="$CAPCWD" "$BIN" capture 2>&1)"
+check "capture: oh-my-pi chat found through a symlinked agent folder" '[ "$(jq -r .chat_id "$CAPF" 2>/dev/null)" = "$LINKCHAT" ]' "$out"
+kill "$CAP_PID" 2>/dev/null
+wait "$CAP_PID" 2>/dev/null
+rm -f "$CAPF" "$HOME/.omp-link"
 
 echo "list and forget"
 out="$("$BIN" list)"

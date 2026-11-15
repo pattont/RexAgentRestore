@@ -719,7 +719,8 @@ discover_chat_id() {
       # file open: the one written most recently is the live chat.
       have lsof || return 1
       local dir path rest best="" best_m=0 m
-      dir="$(agent_dir omp)/sessions"
+      # lsof reports real paths, so resolve symlinks (a linked ~/.omp, say).
+      dir="$(cd "$(agent_dir omp)/sessions" 2>/dev/null && pwd -P)" || return 1
       while IFS= read -r path; do
         case "$path" in "$dir"/*) ;; *) continue ;; esac
         rest="${path#"$dir"/}"
