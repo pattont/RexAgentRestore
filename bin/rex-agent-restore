@@ -733,6 +733,24 @@ $(lsof -p "$pid" -Fn 2>/dev/null | sed -n 's|^n||p')
 EOF
       [ -n "$best" ] && printf '%s\n' "$best"
       ;;
+    antigravity)
+      # Antigravity CLI keeps a log of its own open for as long as it runs,
+      # ~/.gemini/antigravity-cli/log/cli-<start>.log, whose first lines name
+      # the process ("language server process with pid N"), and it logs
+      # "Streaming conversation <id>" each time it opens a chat: at start,
+      # on --conversation or --continue, and when you switch chats. So the
+      # last such line in this process's log is the chat on screen. Subagents
+      # log "Streaming subagent updates for <id>" instead, so they never win.
+      # No such line means no chat has started yet (nothing to resume).
+      have lsof || return 1
+      local log
+      log="$(lsof -p "$pid" -Fn 2>/dev/null | sed -n 's|^n||p' |
+        grep -E '/antigravity-cli/log/cli-[0-9_]+\.log$' | head -1)"
+      [ -n "$log" ] || return 1
+      # The log must be this process's own, not one it inherited.
+      head -n 20 "$log" | grep -q "language server process with pid $pid\$" || return 1
+      sed -n 's/.*Streaming conversation \([0-9a-f][0-9a-f-]*\)$/\1/p' "$log" | tail -1
+      ;;
     *) return 1 ;;
   esac
 }

@@ -296,7 +296,7 @@ cat > "$T/fakebin/rex" <<'EOF'
 case "$*" in
   *" ls --json")          printf '{"sessions":[{"session_id":"session:cap"}]}\n' ;;
   *" block ls "*"--json") printf '{"blocks":[{"block_id":"block:%s"}]}\n' "$FAKE_BLOCK" ;;
-  *" block call "*)       printf '{"foreground":{"name":"omp","argv0":"omp","pid":%s,"cwd":"%s"}}\n' "$FAKE_PID" "$FAKE_CWD" ;;
+  *" block call "*)       printf '{"foreground":{"name":"%s","argv0":"%s","pid":%s,"cwd":"%s"}}\n' "${FAKE_NAME:-omp}" "${FAKE_NAME:-omp}" "$FAKE_PID" "$FAKE_CWD" ;;
 esac
 EOF
 chmod +x "$T/fakebin/rex"
@@ -335,6 +335,46 @@ check "capture: oh-my-pi chat found through a symlinked agent folder" '[ "$(jq -
 kill "$CAP_PID" 2>/dev/null
 wait "$CAP_PID" 2>/dev/null
 rm -f "$CAPF" "$HOME/.omp-link"
+
+# Antigravity CLI keeps its own log open; the last chat it streamed is the
+# one on screen. A process holding the log open stands in for agy, and its
+# log names it the way agy's does.
+AGYLOGS="$HOME/.gemini/antigravity-cli/log"
+mkdir -p "$AGYLOGS"
+agy_log() {   # agy_log FILE PID [CHAT...]: a log as agy writes it
+  local f="$1" pid="$2" c
+  shift 2
+  printf 'I1117 20:14:40.851000      25 server.go:2543] Starting language server process with pid %s\n' "$pid" > "$f"
+  for c in "$@"; do
+    printf 'I1117 20:14:40.877568       1 common.go:483] Resuming conversation %s\n' "$c" >> "$f"
+    printf 'I1117 20:14:40.879025     352 conversation_manager.go:1082] Streaming conversation %s\n' "$c" >> "$f"
+    printf 'I1117 20:14:40.880719     352 server.go:1275] Starting conversation update stream for %s\n' "$c" >> "$f"
+    # A subagent the chat starts streams too, under its own ID, and must not win.
+    printf 'I1117 20:15:02.112040    1419 conversation_manager.go:1419] Streaming subagent updates for %s\n' "$AGYSUB" >> "$f"
+    printf 'I1117 20:15:02.112311    1419 server.go:1251] Starting conversation update stream for %s\n' "$AGYSUB" >> "$f"
+  done
+}
+AGYCHAT1=01a1c370-0000-7000-8000-00000000000a
+AGYCHAT2=01a1c370-0000-7000-8000-00000000000b
+AGYSUB=01a1c370-0000-7000-8000-00000000000c
+AGYLOG="$AGYLOGS/cli-20261117_201440.log"
+: > "$AGYLOG"
+/bin/sh -c 'exec 9<"$1"; sleep 30' _ "$AGYLOG" &
+CAP_PID=$!
+CAP_BLOCK=01a1cccc-0000-7000-8000-000000000005
+CAPF="$STATE/$CAP_BLOCK.json"
+agy_log "$AGYLOG" "$CAP_PID" "$AGYCHAT1" "$AGYCHAT2"
+out="$(FAKE_NAME=agy FAKE_BLOCK=$CAP_BLOCK FAKE_PID=$CAP_PID FAKE_CWD="$CAPCWD" "$BIN" capture 2>&1)"
+check "capture: Antigravity chat found from the log it keeps open (the last chat wins)" '[ "$(jq -r ".agent + \" \" + .chat_id" "$CAPF" 2>/dev/null)" = "antigravity $AGYCHAT2" ]' "$out"
+rm -f "$CAPF"
+agy_log "$AGYLOG" "$CAP_PID"
+out="$(FAKE_NAME=agy FAKE_BLOCK=$CAP_BLOCK FAKE_PID=$CAP_PID FAKE_CWD="$CAPCWD" "$BIN" capture 2>&1)"
+check "capture: Antigravity with no chat started yet isn't guessed" 'echo "$out" | grep -q "couldn.t find its chat ID" && [ ! -e "$CAPF" ]' "$out"
+agy_log "$AGYLOG" 999999 "$AGYCHAT1"
+out="$(FAKE_NAME=agy FAKE_BLOCK=$CAP_BLOCK FAKE_PID=$CAP_PID FAKE_CWD="$CAPCWD" "$BIN" capture 2>&1)"
+check "capture: Antigravity log of another process isn't trusted" 'echo "$out" | grep -q "couldn.t find its chat ID" && [ ! -e "$CAPF" ]' "$out"
+kill "$CAP_PID" 2>/dev/null
+wait "$CAP_PID" 2>/dev/null
 
 echo "list and forget"
 out="$("$BIN" list)"

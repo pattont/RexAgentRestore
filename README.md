@@ -351,6 +351,9 @@ These two commands only read, and never change, another tool's files:
   - For Codex, it reads the thread list in `~/.codex/state_*.sqlite`.
   - For oh-my-pi, it asks `lsof` which chat file under
     `~/.omp/agent/sessions/` the process has open.
+  - For Antigravity CLI, it asks `lsof` which log under
+    `~/.gemini/antigravity-cli/log/` the process has open, and reads the
+    last chat that log says it opened.
   - It reads one variable, `REX_AGENT_RESTORE_SHELL_TOKEN`, from the agent's
     environment. That tells the shell integration the agent is its own.
 - **`import-herdr`**: reads `~/.config/herdr/session.json` to get your
