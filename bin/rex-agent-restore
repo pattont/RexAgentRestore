@@ -1277,6 +1277,8 @@ shell_config_file() {
   esac
 }
 
+# The name of the user's login shell, e.g. zsh. Empty if $SHELL isn't set.
+login_shell() { [ -z "${SHELL:-}" ] || basename -- "$SHELL"; }
 # Make shell $1 load our integration from share folder $2.
 install_shell() {
   local src="$2/rex-agent-restore.$1"
@@ -1461,10 +1463,7 @@ agent_status() {
 parse_install_flags() {
   AGENTS=""
   # The login shell, unless --shell or --no-shell says otherwise.
-  case "$(basename -- "${SHELL:-zsh}")" in
-    bash) SHELLS="bash" ;;
-    *) SHELLS="zsh" ;;
-  esac
+  SHELLS="$(login_shell)"
   DO_REX=1
   DRY_RUN=0
   CODEX_STATUS=""
@@ -1487,6 +1486,16 @@ parse_install_flags() {
       agent_present "$a" && AGENTS="$AGENTS $a"
     done
   fi
+  # Split SHELLS into the ones we can set up and the ones we can't.
+  local s requested="$SHELLS"
+  SHELLS="" UNSUPPORTED_SHELLS=""
+  for s in $requested; do
+    if word_in "$s" "$SUPPORTED_SHELLS"; then
+      SHELLS="${SHELLS:+$SHELLS }$s"
+    else
+      UNSUPPORTED_SHELLS="${UNSUPPORTED_SHELLS:+$UNSUPPORTED_SHELLS }$s"
+    fi
+  done
 }
 
 cmd_install() {
@@ -1514,14 +1523,14 @@ cmd_install() {
 
   say ""
   say "Shell:"
-  [ -n "$SHELLS" ] || note "skipped"
+  [ -n "$SHELLS$UNSUPPORTED_SHELLS" ] || note "skipped"
   for s in $SHELLS; do
-    if word_in "$s" "$SUPPORTED_SHELLS"; then
-      install_shell "$s" "$share"
-    else
-      note "unsupported shell: $s (supported: $SUPPORTED_SHELLS)"
-    fi
+    install_shell "$s" "$share"
   done
+  if [ -n "$UNSUPPORTED_SHELLS" ]; then
+    note "unsupported shell: $UNSUPPORTED_SHELLS; rerun install with --shell $SHELL_CHOICES"
+    note "chats are still saved but won't resume on their own; use the Rex actions or '$PROG resume' / 'forget'"
+  fi
 
   if [ "$DO_REX" = 1 ]; then
     say ""
@@ -1554,7 +1563,15 @@ if ok_rar and type(rar) == \"table\" then rar.setup({ bin = \"$BIN_PATH\" }) end
     say "Dry run finished. Run without --dry-run to make these changes."
     return 0
   fi
-  say "Done. Open a new terminal (or run: exec \$SHELL) to load the shell part."
+  say "Done."
+  # exec $SHELL only helps if the login shell is one we just set up.
+  local login
+  login="$(login_shell)"
+  if word_in "$login" "$SHELLS"; then
+    say "Open a new terminal to load the shell part, or run in this one: exec \$SHELL"
+  elif [ -n "$SHELLS" ]; then
+    say "New ${SHELLS// / or } shells load the shell part; your login shell (${login:-not set}) doesn't"
+  fi
   case " $AGENTS " in *" codex "*) CODEX_STATUS="$(codex_hook_status "$(agent_hook_file codex)" "$(codex_dir)/config.toml")" ;; esac
   case " $AGENTS " in
     *" codex "*)

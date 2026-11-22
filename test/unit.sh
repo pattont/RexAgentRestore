@@ -109,10 +109,31 @@ check "install creates a missing settings file" 'jq -e ".hooks.SessionStart[0].h
 check "--no-shell leaves zshrc alone" '[ ! -e "$HOME/.zshrc" ]'
 
 rm -rf "$HOME"; mkdir -p "$HOME"
-"$BIN" install --agents claude --shell zsh,bash --no-rex >/dev/null 2>&1
+out="$("$BIN" install --agents claude --shell zsh,bash --no-rex 2>&1)"
 check "--shell zsh,bash sets up both" 'grep -q "rex-agent-restore.zsh" "$HOME/.zshrc" && grep -q "rex-agent-restore.bash" "$HOME/.bashrc"'
+check "the reload hint is shown once" '[ "$(echo "$out" | grep -c "exec \$SHELL")" = 1 ]' "$out"
 "$BIN" uninstall >/dev/null 2>&1
 check "uninstall removes every shell block" '! grep -q rex-agent-restore "$HOME/.zshrc" && ! grep -q rex-agent-restore "$HOME/.bashrc"'
+
+rm -rf "$HOME"; mkdir -p "$HOME"
+out="$(SHELL=/opt/homebrew/bin/nu "$BIN" install --agents claude --no-rex 2>&1)"; rc=$?
+check "an unsupported login shell still installs" '[ "$rc" = 0 ]' "$out"
+check "an unsupported login shell gets no zshrc or bashrc" '[ ! -e "$HOME/.zshrc" ] && [ ! -e "$HOME/.bashrc" ]' "$out"
+check "an unsupported login shell is reported" 'echo "$out" | grep -q "unsupported shell: nu"' "$out"
+check "an unsupported login shell isn't told to reload its shell" '! echo "$out" | grep -q "load the shell part"' "$out"
+rm -rf "$HOME"; mkdir -p "$HOME"
+SHELL=/bin/bash "$BIN" install --agents claude --no-rex >/dev/null 2>&1
+check "a bash login shell gets a bashrc block" 'grep -q "rex-agent-restore.bash" "$HOME/.bashrc" && [ ! -e "$HOME/.zshrc" ]'
+rm -rf "$HOME"; mkdir -p "$HOME"
+out="$(SHELL= "$BIN" install --agents claude --no-rex 2>&1)"
+check "no \$SHELL skips the shell part without calling it unsupported" 'echo "$out" | grep -q "skipped" && ! echo "$out" | grep -q "unsupported" && ! echo "$out" | grep -q "load the shell part" && [ ! -e "$HOME/.zshrc" ]' "$out"
+out="$(SHELL= "$BIN" install --agents claude --shell bash --no-rex 2>&1)"
+check "no \$SHELL is named in the reload hint" 'echo "$out" | grep -q "your login shell (not set)"' "$out"
+rm -rf "$HOME"; mkdir -p "$HOME"
+out="$("$BIN" install --agents claude --shell bash --no-rex 2>&1)"
+check "exec \$SHELL isn't suggested when the login shell wasn't set up" 'echo "$out" | grep -q "New bash shells load the shell part; your login shell (zsh)" && ! echo "$out" | grep -q "exec \$SHELL"' "$out"
+out="$("$BIN" install --agents claude --dry-run --no-rex 2>&1)"
+check "a dry run isn't told to reload its shell" '! echo "$out" | grep -q "load the shell part"' "$out"
 
 rm -rf "$HOME"; mkdir -p "$HOME/.codex"
 printf '[features]\nhooks = false\n' > "$HOME/.codex/config.toml"

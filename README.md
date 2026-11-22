@@ -316,7 +316,9 @@ The plugins do nothing outside Rex, never write to the agent's screen, and
 catch every error. Their source is in
 [`share/rex-agent-restore/plugins/`](share/rex-agent-restore/plugins/).
 
-**Your shell**: `~/.zshrc` (or `~/.bashrc`). Appends:
+**Your shell**: `~/.zshrc` if your login shell is zsh, `~/.bashrc` if it's
+bash. Other shells are skipped, and the installer says so; pass
+`--shell zsh` or `--shell bash` to choose. Appends:
 ```sh
 # >>> rex-agent-restore >>>
 [[ -r '/opt/homebrew/share/rex-agent-restore/rex-agent-restore.zsh' ]] && source '/opt/homebrew/share/rex-agent-restore/rex-agent-restore.zsh'
@@ -412,6 +414,9 @@ rar.setup({ bin = "/opt/homebrew/bin/rex-agent-restore", keys = { resume_all = "
   Build. Chats in folders you haven't trusted aren't saved.
 - **Panes without a shell aren't resumed.** A pane that runs an agent directly
   (`rex run -- claude`) has no shell to resume the chat.
+- **Only zsh and bash resume on their own.** In other shells chats are still
+  saved, but don't resume or get forgotten automatically. Use the Rex actions,
+  `rex-agent-restore resume`, or `rex-agent-restore forget`.
 - **Plugins load when the agent starts.** Restart OpenCode, pi, oh-my-pi or Kilo
   after installing.
 
