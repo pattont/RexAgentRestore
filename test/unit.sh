@@ -108,6 +108,12 @@ rm -rf "$HOME"; mkdir -p "$HOME"
 check "install creates a missing settings file" 'jq -e ".hooks.SessionStart[0].hooks[0].command" "$HOME/.claude/settings.json" >/dev/null'
 check "--no-shell leaves zshrc alone" '[ ! -e "$HOME/.zshrc" ]'
 
+rm -rf "$HOME"; mkdir -p "$HOME"
+"$BIN" install --agents claude --shell zsh,bash --no-rex >/dev/null 2>&1
+check "--shell zsh,bash sets up both" 'grep -q "rex-agent-restore.zsh" "$HOME/.zshrc" && grep -q "rex-agent-restore.bash" "$HOME/.bashrc"'
+"$BIN" uninstall >/dev/null 2>&1
+check "uninstall removes every shell block" '! grep -q rex-agent-restore "$HOME/.zshrc" && ! grep -q rex-agent-restore "$HOME/.bashrc"'
+
 rm -rf "$HOME"; mkdir -p "$HOME/.codex"
 printf '[features]\nhooks = false\n' > "$HOME/.codex/config.toml"
 out="$("$BIN" install --agents codex --no-shell --no-rex 2>&1)"

@@ -25,6 +25,9 @@ STATE_DIR="${REX_AGENT_RESTORE_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/
 PANES_DIR="$STATE_DIR/panes"
 CONFIG_FILE="${REX_AGENT_RESTORE_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/rex-agent-restore/config}"
 
+# Every shell the installer can set up (see install_shell).
+SUPPORTED_SHELLS="zsh bash"
+SHELL_CHOICES="${SUPPORTED_SHELLS// /|}"
 # Every agent this tool can save and resume chats for.
 KNOWN_AGENTS="claude codex grok gemini copilot cursor droid antigravity devin kimi qoder qwen letta opencode pi omp kilo"
 # Matches our hook command, quoted or not: '/path/rex-agent-restore' hook claude
@@ -39,6 +42,8 @@ LUA_END="-- <<< rex-agent-restore <<<"
 die() { printf '%s: %s\n' "$PROG" "$*" >&2; exit 1; }
 say() { printf '%s\n' "$*"; }
 note() { printf '  %s\n' "$*"; }
+# Is word $1 in the space-separated list $2?
+word_in() { [ -n "$1" ] && case " $2 " in *" $1 "*) return 0 ;; esac; return 1; }
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
@@ -1008,10 +1013,8 @@ EOF
 cmd_shell_init() {
   local shell="${1:-}" share
   share="$(share_dir)"
-  case "$shell" in
-    zsh|bash) printf 'source %s\n' "$(shq "$share/rex-agent-restore.$shell")" ;;
-    *) die "usage: $PROG shell-init zsh|bash" ;;
-  esac
+  word_in "$shell" "$SUPPORTED_SHELLS" || die "usage: $PROG shell-init $SHELL_CHOICES"
+  printf 'source %s\n' "$(shq "$share/rex-agent-restore.$shell")"
 }
 
 # ---------------------------------------------------------------- install
@@ -1266,7 +1269,27 @@ rex_config_file() {
     printf '%s\n' "${XDG_CONFIG_HOME:-$HOME/.config}/rex/init.lua"
   fi
 }
-zshrc_file() { printf '%s\n' "${ZDOTDIR:-$HOME}/.zshrc"; }
+# The file install_shell writes to make shell $1 load our integration.
+shell_config_file() {
+  case "$1" in
+    zsh) printf '%s\n' "${ZDOTDIR:-$HOME}/.zshrc" ;;
+    bash) printf '%s\n' "$HOME/.bashrc" ;;
+  esac
+}
+
+# Make shell $1 load our integration from share folder $2.
+install_shell() {
+  local src="$2/rex-agent-restore.$1"
+  case "$1" in
+    zsh|bash) put_marked_block "$(shell_config_file "$1")" "$BLOCK_BEGIN" "$BLOCK_END" \
+                "[[ -r $(shq "$src") ]] && source $(shq "$src")" ;;
+  esac
+}
+uninstall_shell() {
+  case "$1" in
+    zsh|bash) remove_marked_block "$(shell_config_file "$1")" "$BLOCK_BEGIN" "$BLOCK_END" ;;
+  esac
+}
 
 # Each agent's config folder (honoring the agent's own override variable).
 agent_dir() {
@@ -1437,7 +1460,11 @@ agent_status() {
 
 parse_install_flags() {
   AGENTS=""
-  SHELLS=""
+  # The login shell, unless --shell or --no-shell says otherwise.
+  case "$(basename -- "${SHELL:-zsh}")" in
+    bash) SHELLS="bash" ;;
+    *) SHELLS="zsh" ;;
+  esac
   DO_REX=1
   DRY_RUN=0
   CODEX_STATUS=""
@@ -1447,7 +1474,7 @@ parse_install_flags() {
       --agents=*) AGENTS="$(printf '%s' "${1#*=}" | tr ',' ' ')"; shift ;;
       --shell) SHELLS="$(printf '%s' "$2" | tr ',' ' ')"; shift 2 ;;
       --shell=*) SHELLS="$(printf '%s' "${1#*=}" | tr ',' ' ')"; shift ;;
-      --no-shell) SHELLS="none"; shift ;;
+      --no-shell) SHELLS=""; shift ;;
       --no-rex) DO_REX=0; shift ;;
       --dry-run|-n) DRY_RUN=1; shift ;;
       -h|--help) usage; exit 0 ;;
@@ -1460,12 +1487,6 @@ parse_install_flags() {
       agent_present "$a" && AGENTS="$AGENTS $a"
     done
   fi
-  if [ -z "$SHELLS" ]; then
-    case "$(basename -- "${SHELL:-zsh}")" in
-      bash) SHELLS="bash" ;;
-      *) SHELLS="zsh" ;;
-    esac
-  fi
 }
 
 cmd_install() {
@@ -1474,7 +1495,9 @@ cmd_install() {
   BIN_PATH="${REX_AGENT_RESTORE_BIN:-$(self_path)}"
   local share a s
   share="$(share_dir)"
-  [ -f "$share/rex-agent-restore.zsh" ] || die "can't find the shell files in $share"
+  for s in $SUPPORTED_SHELLS; do
+    [ -f "$share/rex-agent-restore.$s" ] || die "missing shell file: $share/rex-agent-restore.$s"
+  done
 
   say "Setting up $PROG $VERSION"
   [ "$DRY_RUN" = 1 ] && say "(dry run: nothing will be changed)"
@@ -1491,15 +1514,13 @@ cmd_install() {
 
   say ""
   say "Shell:"
+  [ -n "$SHELLS" ] || note "skipped"
   for s in $SHELLS; do
-    case "$s" in
-      none) note "skipped" ;;
-      zsh) put_marked_block "$(zshrc_file)" "$BLOCK_BEGIN" "$BLOCK_END" \
-             "[[ -r $(shq "$share/rex-agent-restore.zsh") ]] && source $(shq "$share/rex-agent-restore.zsh")" ;;
-      bash) put_marked_block "$HOME/.bashrc" "$BLOCK_BEGIN" "$BLOCK_END" \
-             "[[ -r $(shq "$share/rex-agent-restore.bash") ]] && source $(shq "$share/rex-agent-restore.bash")" ;;
-      *) note "unsupported shell: $s (zsh and bash are supported)" ;;
-    esac
+    if word_in "$s" "$SUPPORTED_SHELLS"; then
+      install_shell "$s" "$share"
+    else
+      note "unsupported shell: $s (supported: $SUPPORTED_SHELLS)"
+    fi
   done
 
   if [ "$DO_REX" = 1 ]; then
@@ -1556,8 +1577,10 @@ cmd_uninstall() {
   for a in $KNOWN_AGENTS; do
     uninstall_agent "$a"
   done
-  remove_marked_block "$(zshrc_file)" "$BLOCK_BEGIN" "$BLOCK_END"
-  remove_marked_block "$HOME/.bashrc" "$BLOCK_BEGIN" "$BLOCK_END"
+  local s
+  for s in $SUPPORTED_SHELLS; do
+    uninstall_shell "$s"
+  done
   local rexcfg
   rexcfg="$(rex_config_file)"
   remove_marked_block "$rexcfg" "$LUA_BEGIN" "$LUA_END"
@@ -1610,7 +1633,7 @@ usage() {
 $PROG $VERSION: bring AI agent chats back when Rex restores your panes.
 
 Usage:
-  $PROG install [--agents a,b,...] [--shell zsh|bash] [--no-shell] [--no-rex] [--dry-run]
+  $PROG install [--agents a,b,...] [--shell $SHELL_CHOICES] [--no-shell] [--no-rex] [--dry-run]
       agents: $KNOWN_AGENTS
   $PROG uninstall [--dry-run]
   $PROG list [--json]           show saved chats
@@ -1628,7 +1651,7 @@ Used by the integrations:
   $PROG hook AGENT              agent SessionStart hook (reads the event on stdin)
   $PROG restore-plan [PANE_ID]  what the shell integration runs in a restored pane
   $PROG resume-command [PANE_ID]
-  $PROG shell-init zsh|bash
+  $PROG shell-init $SHELL_CHOICES
 
 Settings (environment or $CONFIG_FILE):
   REX_AGENT_RESTORE_MODE=auto|prompt|off   resume automatically (default), type the
