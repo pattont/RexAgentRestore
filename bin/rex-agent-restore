@@ -26,7 +26,7 @@ PANES_DIR="$STATE_DIR/panes"
 CONFIG_FILE="${REX_AGENT_RESTORE_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/rex-agent-restore/config}"
 
 # Every shell the installer can set up (see install_shell).
-SUPPORTED_SHELLS="zsh bash"
+SUPPORTED_SHELLS="zsh bash fish"
 SHELL_CHOICES="${SUPPORTED_SHELLS// /|}"
 # Every agent this tool can save and resume chats for.
 KNOWN_AGENTS="claude codex grok gemini copilot cursor droid antigravity devin kimi qoder qwen letta opencode pi omp kilo"
@@ -1139,13 +1139,16 @@ install_plugin() {
   install_own_file "$file" "$(sed "s|__REX_AGENT_RESTORE_BIN__|$(printf '%s' "$BIN_PATH" | sed 's/[|&\\]/\\&/g; s/"/\\\\"/g')|" "$src")"
 }
 
+# remove_own_file FILE [keep-dir]: remove a file install_own_file wrote, and
+# its folder if that leaves it empty, unless keep-dir is given (the folder
+# belongs to the user, like fish's conf.d).
 remove_own_file() {
   local file="$1"
   [ -f "$file" ] || return 0
   grep -q 'rex-agent-restore' "$file" 2>/dev/null || return 0
   [ "$DRY_RUN" = 1 ] && { note "would remove $file"; return 0; }
   rm -f "$file"
-  rmdir "$(dirname -- "$file")" 2>/dev/null
+  [ "${2:-}" = keep-dir ] || rmdir "$(dirname -- "$file")" 2>/dev/null
   note "removed $file"
 }
 
@@ -1274,6 +1277,7 @@ shell_config_file() {
   case "$1" in
     zsh) printf '%s\n' "${ZDOTDIR:-$HOME}/.zshrc" ;;
     bash) printf '%s\n' "$HOME/.bashrc" ;;
+    fish) printf '%s\n' "${XDG_CONFIG_HOME:-$HOME/.config}/fish/conf.d/rex-agent-restore.fish" ;;
   esac
 }
 
@@ -1285,11 +1289,14 @@ install_shell() {
   case "$1" in
     zsh|bash) put_marked_block "$(shell_config_file "$1")" "$BLOCK_BEGIN" "$BLOCK_END" \
                 "[[ -r $(shq "$src") ]] && source $(shq "$src")" ;;
+    fish) install_own_file "$(shell_config_file fish)" "# rex-agent-restore: remove with \`rex-agent-restore uninstall\`.
+test -r $(shq "$src"); and source $(shq "$src")" ;;
   esac
 }
 uninstall_shell() {
   case "$1" in
     zsh|bash) remove_marked_block "$(shell_config_file "$1")" "$BLOCK_BEGIN" "$BLOCK_END" ;;
+    fish) remove_own_file "$(shell_config_file fish)" keep-dir ;;
   esac
 }
 

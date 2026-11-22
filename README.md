@@ -184,6 +184,8 @@ and Codex come back as plain shells.
 3. **Resume.** Rex keeps a pane's ID across restarts. When a restored pane's
    shell shows its first prompt and finds a saved chat, it runs the agent's
    resume command in the chat's folder and adds it to your shell history.
+   (fish has Rex type the command into the pane instead, so it runs like a
+   command you typed.)
 
 The hook works out which agent is really running from the process tree. So:
 - Subagents never replace a pane's saved chat.
@@ -317,8 +319,10 @@ catch every error. Their source is in
 [`share/rex-agent-restore/plugins/`](share/rex-agent-restore/plugins/).
 
 **Your shell**: `~/.zshrc` if your login shell is zsh, `~/.bashrc` if it's
-bash. Other shells are skipped, and the installer says so; pass
-`--shell zsh` or `--shell bash` to choose. Appends:
+bash, a new `~/.config/fish/conf.d/rex-agent-restore.fish` if it's fish (3.5
+or later). Other shells are skipped, and the installer says so; pass
+`--shell zsh`, `--shell bash` or `--shell fish` to choose. For zsh and bash it
+appends:
 ```sh
 # >>> rex-agent-restore >>>
 [[ -r '/opt/homebrew/share/rex-agent-restore/rex-agent-restore.zsh' ]] && source '/opt/homebrew/share/rex-agent-restore/rex-agent-restore.zsh'
@@ -328,6 +332,14 @@ bash. Other shells are skipped, and the installer says so; pass
 outside Rex. Inside Rex it adds one prompt hook. The hook deletes a pane's
 saved chat when you quit the agent, and resumes the chat on the first prompt
 after Rex restores the pane.
+
+The fish file sources
+[`rex-agent-restore.fish`](share/rex-agent-restore/rex-agent-restore.fish),
+which does the same with fish's prompt events. One difference: to resume, it
+has Rex type the command into the pane rather than run it from the prompt
+hook, so the agent gets its own job and normal terminal settings. Running it
+from the hook doesn't work in fish (see
+[fish-shell#13104](https://github.com/fish-shell/fish-shell/issues/13104)).
 
 **Rex**: `~/.config/rex/init.lua`. Appends:
 ```lua
@@ -414,7 +426,7 @@ rar.setup({ bin = "/opt/homebrew/bin/rex-agent-restore", keys = { resume_all = "
   Build. Chats in folders you haven't trusted aren't saved.
 - **Panes without a shell aren't resumed.** A pane that runs an agent directly
   (`rex run -- claude`) has no shell to resume the chat.
-- **Only zsh and bash resume on their own.** In other shells chats are still
+- **Only zsh, bash and fish resume on their own.** In other shells chats are still
   saved, but don't resume or get forgotten automatically. Use the Rex actions,
   `rex-agent-restore resume`, or `rex-agent-restore forget`.
 - **Plugins load when the agent starts.** Restart OpenCode, pi, oh-my-pi or Kilo

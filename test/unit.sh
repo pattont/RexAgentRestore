@@ -130,6 +130,18 @@ check "no \$SHELL skips the shell part without calling it unsupported" 'echo "$o
 out="$(SHELL= "$BIN" install --agents claude --shell bash --no-rex 2>&1)"
 check "no \$SHELL is named in the reload hint" 'echo "$out" | grep -q "your login shell (not set)"' "$out"
 rm -rf "$HOME"; mkdir -p "$HOME"
+FC="$HOME/.config/fish/conf.d/rex-agent-restore.fish"
+SHELL=/opt/homebrew/bin/fish "$BIN" install --agents claude --no-rex >/dev/null 2>&1
+check "a fish login shell gets a conf.d file" 'grep -q "source .*rex-agent-restore.fish" "$FC" && [ ! -e "$HOME/.zshrc" ]'
+command -v fish >/dev/null 2>&1 && check "the fish conf.d file is valid fish" 'fish -n "$FC"'
+cp "$FC" "$T/fish.1"
+out="$(SHELL=/opt/homebrew/bin/fish "$BIN" install --agents claude --no-rex 2>&1)"
+check "fish install is idempotent" 'cmp -s "$T/fish.1" "$FC" && echo "$out" | grep -q "already set up: $FC"' "$out"
+"$BIN" uninstall >/dev/null 2>&1
+check "uninstall removes the fish conf.d file" '[ ! -e "$FC" ]'
+check "uninstall keeps the fish conf.d folder" '[ -d "$(dirname "$FC")" ]'
+check "shell-init fish sources the fish file" '"$BIN" shell-init fish | grep -q "rex-agent-restore.fish"'
+rm -rf "$HOME"; mkdir -p "$HOME"
 out="$("$BIN" install --agents claude --shell bash --no-rex 2>&1)"
 check "exec \$SHELL isn't suggested when the login shell wasn't set up" 'echo "$out" | grep -q "New bash shells load the shell part; your login shell (zsh)" && ! echo "$out" | grep -q "exec \$SHELL"' "$out"
 out="$("$BIN" install --agents claude --dry-run --no-rex 2>&1)"
@@ -455,6 +467,61 @@ jq -cn --arg b $B1 --arg c "$CWD" '{block_id:$b, agent:"claude", chat_id:"bash-c
 REX_BLOCK=$B1 _REX_AGENT_RESTORE_OWNER= bash --norc -i -c "source '$BS'; _rex_agent_restore_prompt" >/dev/null 2>&1
 check "bash: first prompt resumes the saved chat" 'grep -q "fake claude --resume bash-chat" "$T/agent.log"'
 check "bash: record forgotten after exit" '[ ! -e "$F1" ]'
+
+echo "fish integration"
+if command -v fish >/dev/null 2>&1; then
+  FS="$ROOT/share/rex-agent-restore/rex-agent-restore.fish"
+  # Fish types the resume command into the pane through Rex: a fake rex logs it.
+  printf '#!/bin/sh\nprintf "%%s|" "$@" >> "%s"\necho >> "%s"\nexit ${FAKE_REX_EXIT:-0}\n' "$T/rex.log" "$T/rex.log" > "$T/fakebin/rex"
+  chmod +x "$T/fakebin/rex"
+  fish_run() { REX_BLOCK=$B1 _REX_AGENT_RESTORE_OWNER= fish --no-config -i -c "source '$FS'; $1" 2>&1; }
+  old_record() { jq -cn --arg b $B1 --arg c "$CWD" '{block_id:$b, agent:"claude", chat_id:"fish-chat", cwd:$c, shell_token:"old-shell"}' > "$F1"; }
+  kept() { echo "; test -e '$F1'; and echo STATE=kept; or echo STATE=removed"; }
+
+  : > "$T/rex.log"; old_record
+  want="$(REX_BLOCK=$B1 "$BIN" resume-command)"
+  out="$(fish_run "emit fish_prompt")"
+  check "fish: first prompt types the resume command into the pane" 'grep -qF "send|-b|$B1|--|$want" "$T/rex.log"' "$out$(cat "$T/rex.log")"
+  out="$(cd / && fish --no-config -c "$want; and pwd" 2>&1)"
+  check "fish: runs the resume command in the saved folder, quotes and all" '[ "$out" = "$CWD" ]' "$out"
+  out="$(fish_run "emit fish_prompt; true; emit fish_postexec$(kept)")"
+  check "fish: record is forgotten after the resumed agent exits" 'echo "$out" | grep -q STATE=removed' "$out"
+  old_record
+  out="$(fish_run "emit fish_prompt; sh -c 'exit 143'; emit fish_postexec$(kept)")"
+  check "fish: record is kept when the resumed agent is killed" 'echo "$out" | grep -q STATE=kept' "$out"
+  old_record
+  out="$(fish_run "emit fish_prompt; emit fish_prompt$(kept)")"
+  check "fish: an empty Enter before the resume command runs keeps the record" 'echo "$out" | grep -q STATE=kept' "$out"
+  : > "$T/rex.log"
+  out="$(fish_run "emit fish_prompt; emit fish_prompt")"
+  check "fish: only the first prompt resumes" '[ "$(grep -c send "$T/rex.log")" = 1 ]' "$(cat "$T/rex.log")"
+
+  : > "$T/rex.log"
+  REX_BLOCK=$B1 _REX_AGENT_RESTORE_OWNER=$B1 fish --no-config -i -c "source '$FS'; emit fish_prompt" >/dev/null 2>&1
+  check "fish: a nested shell in the same pane doesn't resume" '[ ! -s "$T/rex.log" ] && [ -e "$F1" ]'
+  REX_AGENT_RESTORE_MODE=off fish_run "emit fish_prompt" >/dev/null
+  check "fish: off mode doesn't resume and keeps the record" '[ ! -s "$T/rex.log" ] && [ -e "$F1" ]'
+  out="$(REX_AGENT_RESTORE_MODE=prompt fish_run "emit fish_prompt")"
+  check "fish: prompt mode asks instead of resuming" '[ ! -s "$T/rex.log" ] && echo "$out" | grep -q "press Enter"' "$out"
+  out="$(FAKE_REX_EXIT=1 fish_run "emit fish_prompt; true; emit fish_postexec$(kept)")"
+  check "fish: if Rex can't be reached, it asks and keeps the record" 'echo "$out" | grep -q "couldn.t reach Rex" && echo "$out" | grep -q STATE=kept' "$out"
+
+  # A record written by an agent started from this same shell.
+  own="set -g _rex_agent_restore_first 0; jq -cn --arg t \$REX_AGENT_RESTORE_SHELL_TOKEN '{shell_token:\$t}' > '$F1'"
+  out="$(fish_run "$own; true; emit fish_postexec; emit fish_prompt$(kept)")"
+  check "fish: agent that exited normally is forgotten at the prompt" 'echo "$out" | grep -q STATE=removed' "$out"
+  for st in 129 137 143; do
+    out="$(fish_run "$own; sh -c 'exit $st'; emit fish_postexec; emit fish_prompt$(kept)")"
+    check "fish: agent killed with exit $st is kept" 'echo "$out" | grep -q STATE=kept' "$out"
+  done
+  out="$(fish_run "echo \$REX_AGENT_RESTORE_SHELL_TOKEN")"
+  check "fish: shell token has a random part" 'echo "$out" | grep -Eq "^[0-9]+-[0-9]+-[0-9]+$"' "$out"
+  out="$(REX_BLOCK= fish --no-config -i -c "source '$FS'; functions -q _rex_agent_restore_prompt; and echo defined; or echo none" 2>&1)"
+  check "fish: outside Rex the integration does nothing" '[ "$out" = none ]' "$out"
+  rm -f "$F1" "$T/fakebin/rex"
+else
+  echo "  skip (fish not found)"
+fi
 
 echo
 printf '%d passed, %d failed\n' "$PASS" "$FAIL"
