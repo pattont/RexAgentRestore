@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="536" viewBox="0 0 1280 536" role="img" aria-labelledby="t d">
 <title id="t">What a Rex restart does to your agent chats</title>
-<desc id="d">Two Rex windows after the Rex server restarts. Without Rex Agent Restore, all three panes are empty shell prompts. With it, Gemini CLI, Codex and OpenCode are back in the chats they were running.</desc>
+<desc id="d">Two Rex windows after the Rex server restarts. Without Rex Agent Restore, Rex resumes Claude Code itself (Program Resume), but the Gemini CLI, Codex and OpenCode panes are empty shell prompts. With it, Gemini CLI, Codex and OpenCode are back in the chats they were running.</desc>
 <defs>
 <linearGradient id="win-r0" x1="0" y1="0" x2="0.35" y2="1">
   <stop offset="0" stop-color="#1F1F2D"/><stop offset="1" stop-color="#1B1B28"/>
@@ -29,7 +29,7 @@
 <circle cx="42" cy="34" r="12" fill="#F7768E"/>
 <text x="42" y="39.5" fill="#FFFFFF" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="700" text-anchor="middle">✕</text>
 <text x="64" y="40" fill="#E6EDF3" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="19" font-weight="700" text-anchor="start">Without Rex Agent Restore</text>
-<text x="64" y="64" fill="#9198A1" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="400" text-anchor="start">Rex brings back your panes, but each one is a new shell.</text>
+<text x="64" y="64" fill="#9198A1" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="400" text-anchor="start">Rex resumes Claude Code itself; other agents' panes come back as new shells.</text>
 <g transform="translate(30 92)">
 <rect width="596" height="410" rx="12" fill="url(#win-r0)" stroke="#33354A" filter="url(#shadow-r0)"/>
 <circle cx="20" cy="20.0" r="6" fill="#FF5F57"/>
