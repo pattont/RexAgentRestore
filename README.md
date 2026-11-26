@@ -38,7 +38,7 @@ and the chat that was running there is gone.
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset=".github/assets/restart-dark.svg">
-    <img src=".github/assets/restart-light.svg" width="100%" alt="Two Rex windows after a Rex restart. Without Rex Agent Restore, Rex's own Program Resume brings Claude Code back, but the Codex and OpenCode panes are empty shell prompts. With it, Codex and OpenCode are back in the chats they were running too.">
+    <img src=".github/assets/restart-light.svg" width="100%" alt="Two Rex windows after a Rex restart. Without Rex Agent Restore, all three panes are empty shell prompts. With it, Gemini CLI, Codex and OpenCode are back in the chats they were running.">
   </picture>
 </p>
 
