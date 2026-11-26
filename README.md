@@ -48,7 +48,7 @@ Code only where Rex can't resume it itself), and nothing runs in the
 background.
 
 > Rex Agent Restore is an independent, community project. It is not made by,
-> affiliated with, or endorsed by Superlogical (the makers of Rex) or herdr.
+> affiliated with, or endorsed by Superlogical (the makers of Rex).
 
 ## Install
 
