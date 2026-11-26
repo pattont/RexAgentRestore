@@ -26,7 +26,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset=".github/assets/hero-dark.svg">
-    <img src=".github/assets/hero-light.svg" width="100%" alt="A Rex window after a restart. Claude Code, Codex and OpenCode have each resumed their chat in their own pane, under a line reading 'rex-agent-restore: resuming … chat'. Where Rex has Program Resume, Rex brings Claude Code back itself.">
+    <img src=".github/assets/hero-light.svg" width="100%" alt="A Rex window after a restart. Claude Code, Codex and OpenCode have each resumed their chat in their own pane: Codex and OpenCode under a line reading 'rex-agent-restore: resuming … chat', and Claude Code resumed by Rex's own Program Resume.">
   </picture>
 </p>
 
@@ -38,7 +38,7 @@ and the chat that was running there is gone.
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset=".github/assets/restart-dark.svg">
-    <img src=".github/assets/restart-light.svg" width="100%" alt="Two Rex windows after a Rex restart. Without Rex Agent Restore, all three panes are empty shell prompts. With it, Claude Code, Codex and OpenCode are back in the chats they were running.">
+    <img src=".github/assets/restart-light.svg" width="100%" alt="Two Rex windows after a Rex restart. Without Rex Agent Restore, Rex's own Program Resume brings Claude Code back, but the Codex and OpenCode panes are empty shell prompts. With it, Codex and OpenCode are back in the chats they were running too.">
   </picture>
 </p>
 
