@@ -96,26 +96,35 @@ it back. Running it again skips workspaces it has already imported.
 
 ## Supported agents
 
-| Agent | Tested | How it hooks in | Resumes with |
-| --- | --- | --- | --- |
-| Claude Code | ✅ real test | `SessionStart` hook | `claude --resume <id>` (left to Rex where Rex resumes it itself; see below) |
-| OpenCode 2.x | ✅ real test | TUI plugin | `opencode --session <id>` |
-| Codex | 🧪 beta | `SessionStart` hook (approve once in `/hooks`) | `codex resume <id>` |
-| Grok Build | 🧪 beta | `SessionStart` hook | `grok --resume <id>` |
-| Gemini CLI | 🧪 beta | `SessionStart` hook | `gemini --resume <id>` |
-| GitHub Copilot CLI | 🧪 beta | `SessionStart` hook | `copilot --resume=<id>` |
-| Cursor Agent | 🧪 beta | `sessionStart` hook | `cursor-agent --resume <id>` |
-| Factory Droid | 🧪 beta | `SessionStart` hook | `droid --resume <id>` |
-| Antigravity CLI | 🧪 beta | `SessionStart` and `PreInvocation` hooks | `agy --conversation <id>` |
-| Devin CLI | 🧪 beta | `SessionStart` hook | `devin --resume <id>` |
-| Kimi Code | 🧪 beta | `SessionStart` hook | `kimi --session <id>` |
-| Qoder CLI | 🧪 beta | `SessionStart` hook | `qoder --resume <id>` |
-| Qwen Code | 🧪 beta | `SessionStart` hook | `qwen --resume <id>` |
-| Letta Code | 🧪 beta | `SessionStart` hook | `letta --conversation <id>` |
-| pi | 🧪 beta | extension | `pi --session <file>` |
-| oh-my-pi | 🧪 beta | extension | `omp --resume=<file>` |
-| Kilo Code CLI | 🧪 beta | plugin | `kilo --session <id>` |
+| Agent | Rex Program Resume | Tested | How it hooks in | Resumes with |
+| --- | --- | --- | --- | --- |
+| Claude Code | ✅ built in: Rex resumes it, this tool steps aside | ✅ real test | `SessionStart` hook | `claude --resume <id>` |
+| OpenCode 2.x | ➖ not yet: this tool resumes it | ✅ real test | TUI plugin | `opencode --session <id>` |
+| Codex | ➖ not yet: this tool resumes it | 🧪 beta | `SessionStart` hook (approve once in `/hooks`) | `codex resume <id>` |
+| Grok Build | ➖ not yet: this tool resumes it | 🧪 beta | `SessionStart` hook | `grok --resume <id>` |
+| Gemini CLI | ➖ not yet: this tool resumes it | 🧪 beta | `SessionStart` hook | `gemini --resume <id>` |
+| GitHub Copilot CLI | ➖ not yet: this tool resumes it | 🧪 beta | `SessionStart` hook | `copilot --resume=<id>` |
+| Cursor Agent | ➖ not yet: this tool resumes it | 🧪 beta | `sessionStart` hook | `cursor-agent --resume <id>` |
+| Factory Droid | ➖ not yet: this tool resumes it | 🧪 beta | `SessionStart` hook | `droid --resume <id>` |
+| Antigravity CLI | ➖ not yet: this tool resumes it | 🧪 beta | `SessionStart` and `PreInvocation` hooks | `agy --conversation <id>` |
+| Devin CLI | ➖ not yet: this tool resumes it | 🧪 beta | `SessionStart` hook | `devin --resume <id>` |
+| Kimi Code | ➖ not yet: this tool resumes it | 🧪 beta | `SessionStart` hook | `kimi --session <id>` |
+| Qoder CLI | ➖ not yet: this tool resumes it | 🧪 beta | `SessionStart` hook | `qoder --resume <id>` |
+| Qwen Code | ➖ not yet: this tool resumes it | 🧪 beta | `SessionStart` hook | `qwen --resume <id>` |
+| Letta Code | ➖ not yet: this tool resumes it | 🧪 beta | `SessionStart` hook | `letta --conversation <id>` |
+| pi | ➖ not yet: this tool resumes it | 🧪 beta | extension | `pi --session <file>` |
+| oh-my-pi | ➖ not yet: this tool resumes it | 🧪 beta | extension | `omp --resume=<file>` |
+| Kilo Code CLI | ➖ not yet: this tool resumes it | 🧪 beta | plugin | `kilo --session <id>` |
 
+- **Rex Program Resume:** whether Rex brings the agent back on its own with
+  [Program Resume](https://www.superlogical.com/rex/docs/build/program-resume)
+  (OSC 7577). **✅ built in** means Rex resumes it, and in a terminal where
+  Rex does, this tool doesn't save or resume that agent's chats (on older
+  Rex versions without Program Resume, this tool still resumes it). **➖ not
+  yet** means the agent doesn't report a resume command to Rex, so this tool
+  is what brings its chat back. Rex already ships trust rules for Codex and
+  OpenCode, so they may move to ✅ once those agents report to Rex; when one
+  does, add it to `REX_AGENT_RESTORE_REX_RESUMES` (see [Settings](#settings)).
 - **✅ real test:** run with the real agent through a full save, Rex restart, and
   resume.
 - **🧪 beta:** built from the agent's own documentation and source. Automated
@@ -130,8 +139,8 @@ welcome too.
 **Claude Code and Rex's own resume.** Newer Rex versions restart Claude Code
 themselves after a restart (Rex's
 [Program Resume](https://www.superlogical.com/rex/docs/build/program-resume):
-Claude Code reports its resume command to the terminal). In a terminal where Rex does that, this tool
-leaves Claude Code alone: it doesn't save its chats, `capture` skips it, and a
+Claude Code reports its resume command to the terminal). In a terminal where
+Rex does that, this tool leaves Claude Code alone: it doesn't save its chats, `capture` skips it, and a
 chat saved earlier isn't resumed a second time. Older Rex versions don't offer
 Program Resume, so there it keeps working as before. To pick which agents are
 left to Rex, set `REX_AGENT_RESTORE_REX_RESUMES` (see [Settings](#settings)).
