@@ -22,6 +22,8 @@ export HOME="$T/home"
 mkdir -p "$HOME"
 unset ZDOTDIR XDG_CONFIG_HOME XDG_STATE_HOME CLAUDE_CONFIG_DIR CODEX_HOME GROK_HOME REX_CONFIG
 unset REX_AGENT_RESTORE_MODE REX_AGENT_RESTORE_DISABLE GROK_SESSION_ID CODEX_THREAD_ID
+# Rex sets this in terminals with Program Resume; tests opt in per case.
+unset OSC7577_TOKEN REX_AGENT_RESTORE_REX_RESUMES
 export SHELL=/bin/zsh
 export REX_AGENT_RESTORE_STATE_DIR="$T/state"
 export REX_AGENT_RESTORE_CONFIG="$T/config"
@@ -327,6 +329,29 @@ check "grok resume command" '[ "$(REX_BLOCK=$B1 "$BIN" resume-command | sed "s/.
 rm -f "$T/fakebin/grok"
 check "no plan when the agent isn't installed" '! REX_BLOCK=$B1 PATH="$T/fakebin:/usr/bin:/bin" "$BIN" restore-plan >/dev/null 2>&1'
 
+echo "Rex resumes Claude itself"
+# Where Rex has Program Resume (it sets OSC7577_TOKEN), Claude Code reports
+# its own resume command and Rex restarts it, so we must not resume it again.
+B9=block:01a1aaaa-0000-7000-8000-000000000009
+F9="$STATE/01a1aaaa-0000-7000-8000-000000000009.json"
+run_hook claude claude "$(json SessionStart rx-1)" REX_BLOCK=$B9 OSC7577_TOKEN=t
+check "rex resume: claude chat isn't saved where Rex resumes it" '[ ! -e "$F9" ]'
+run_hook codex codex "$(json SessionStart rx-cx)" REX_BLOCK=$B9 OSC7577_TOKEN=t
+check "rex resume: other agents are still saved" '[ "$(jq -r .chat_id "$F9" 2>/dev/null)" = rx-cx ]'
+run_hook claude claude "$(json SessionStart rx-2)" REX_BLOCK=$B9 OSC7577_TOKEN=t
+check "rex resume: claude starting in a pane drops the chat saved there before" '[ ! -e "$F9" ]'
+run_hook claude claude "$(json SessionStart rx-3)" REX_BLOCK=$B9 OSC7577_TOKEN=t REX_AGENT_RESTORE_REX_RESUMES=
+check "rex resume: an empty REX_AGENT_RESTORE_REX_RESUMES keeps saving claude" '[ "$(jq -r .chat_id "$F9" 2>/dev/null)" = rx-3 ]'
+run_hook claude claude "$(json SessionStart rx-4)" REX_BLOCK=$B9 OSC7577_TOKEN=t REX_AGENT_RESTORE_REX_RESUMES=codex
+check "rex resume: REX_AGENT_RESTORE_REX_RESUMES picks the agents" '[ "$(jq -r .chat_id "$F9" 2>/dev/null)" = rx-4 ]'
+check "rex resume: older Rex (no OSC7577_TOKEN) still gets a restore plan" 'REX_BLOCK=$B9 "$BIN" restore-plan | sed -n 3p | grep -q "claude --resume"'
+plan="$(REX_BLOCK=$B9 OSC7577_TOKEN=t "$BIN" restore-plan)"
+check "rex resume: a claude chat saved earlier isn't resumed again" '[ -z "$plan" ] && [ ! -e "$F9" ]' "$plan"
+run_hook claude claude "$(json SessionStart rx-5)" REX_BLOCK=$B9
+plan="$(REX_BLOCK=$B9 OSC7577_TOKEN=t REX_AGENT_RESTORE_REX_RESUMES= "$BIN" restore-plan)"
+check "rex resume: an empty setting resumes claude here too" 'printf "%s\n" "$plan" | sed -n 3p | grep -q "claude --resume"' "$plan"
+rm -f "$F9"
+
 echo "capture"
 # A fake rex that reports one pane running oh-my-pi, and a process holding a
 # chat file open the way oh-my-pi does.
@@ -414,6 +439,10 @@ out="$(FAKE_NAME=agy FAKE_BLOCK=$CAP_BLOCK FAKE_PID=$CAP_PID FAKE_CWD="$CAPCWD" 
 check "capture: Antigravity log of another process isn't trusted" 'echo "$out" | grep -q "couldn.t find its chat ID" && [ ! -e "$CAPF" ]' "$out"
 kill "$CAP_PID" 2>/dev/null
 wait "$CAP_PID" 2>/dev/null
+# A pane running Claude Code where Rex resumes it is left to Rex.
+CAP_BLOCK=01a1cccc-0000-7000-8000-000000000006
+out="$(OSC7577_TOKEN=t FAKE_NAME=claude FAKE_BLOCK=$CAP_BLOCK FAKE_PID=$$ FAKE_CWD="$CAPCWD" "$BIN" capture 2>&1)"
+check "capture: claude is left to Rex where Rex resumes it" 'echo "$out" | grep -q "left to Rex" && [ ! -e "$STATE/$CAP_BLOCK.json" ]' "$out"
 
 echo "list and forget"
 out="$("$BIN" list)"

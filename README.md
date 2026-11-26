@@ -79,7 +79,7 @@ it back. Running it again skips workspaces it has already imported.
 
 | Agent | Tested | How it hooks in | Resumes with |
 | --- | --- | --- | --- |
-| Claude Code | ✅ real test | `SessionStart` hook | `claude --resume <id>` |
+| Claude Code | ✅ real test | `SessionStart` hook | `claude --resume <id>` (left to Rex where Rex resumes it itself; see below) |
 | OpenCode 2.x | ✅ real test | TUI plugin | `opencode --session <id>` |
 | Codex | 🧪 beta | `SessionStart` hook (approve once in `/hooks`) | `codex resume <id>` |
 | Grok Build | 🧪 beta | `SessionStart` hook | `grok --resume <id>` |
@@ -107,6 +107,14 @@ If an agent doesn't come back for you, please
 [open an issue](https://github.com/pattont/RexAgentRestore/issues) with the
 output of `REX_AGENT_RESTORE_DEBUG=1`. Reports that a beta agent works are
 welcome too.
+
+**Claude Code and Rex's own resume.** Newer Rex versions restart Claude Code
+themselves after a restart (Rex's Program Resume: Claude Code reports its
+resume command to the terminal). In a terminal where Rex does that, this tool
+leaves Claude Code alone: it doesn't save its chats, `capture` skips it, and a
+chat saved earlier isn't resumed a second time. Older Rex versions don't offer
+Program Resume, so there it keeps working as before. To pick which agents are
+left to Rex, set `REX_AGENT_RESTORE_REX_RESUMES` (see [Settings](#settings)).
 
 **Not supported yet:**
 - **Hermes Agent:** runs every chat in one shared background process, so a chat
@@ -405,6 +413,7 @@ as environment variables.
 | `REX_AGENT_RESTORE_MODE=prompt` | type the resume command and wait for you to press Enter |
 | `REX_AGENT_RESTORE_MODE=off` | do nothing; use the palette actions instead |
 | `REX_AGENT_RESTORE_<AGENT>_ARGS="..."` | extra arguments for that agent's resume command, e.g. `REX_AGENT_RESTORE_CLAUDE_ARGS="--model opus"` |
+| `REX_AGENT_RESTORE_REX_RESUMES="claude"` | agents left to Rex's own resume, in terminals where Rex has it (default `claude`; space-separated; empty resumes them here too) |
 | `REX_AGENT_RESTORE_DISABLE=1` | stop saving chats |
 | `REX_AGENT_RESTORE_DEBUG=1` | log hook decisions to `~/.local/state/rex-agent-restore/debug.log` |
 

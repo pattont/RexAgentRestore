@@ -351,6 +351,14 @@ EOF
   fi
   [ "$background" = true ] && return 0
 
+  if rex_resumes "$agent"; then
+    # Rex resumes this chat itself. Drop what this pane had saved before, so
+    # the shell doesn't start an older chat when you quit this one.
+    record_path "$REX_BLOCK" >/dev/null 2>&1 && rm -f "$(record_path "$REX_BLOCK")"
+    debug "skip: Rex resumes $agent itself"
+    return 0
+  fi
+
   case "$agent" in
     grok) [ -n "${GROK_SESSION_ID:-}" ] && sid="$GROK_SESSION_ID" ;;
     gemini) [ -n "$sid" ] || sid="${GEMINI_SESSION_ID:-}"; [ -n "$cwd" ] || cwd="${GEMINI_CWD:-}" ;;
@@ -413,6 +421,17 @@ normalize_agent() {
     factory|droid) echo droid ;;
     *) printf '%s\n' "$1" ;;
   esac
+}
+
+# Does Rex resume AGENT's chats by itself in this terminal? Rex's Program
+# Resume restarts a program that reported its resume command (OSC 7577), and
+# Claude Code reports one. Saving those chats too would resume them twice:
+# once by Rex, and again by the shell when you quit the agent Rex restarted.
+# Rex sets OSC7577_TOKEN only in terminals that support Program Resume, so
+# older Rex versions keep using our own resume. Call after load_config.
+rex_resumes() {
+  [ -n "${OSC7577_TOKEN:-}" ] || return 1
+  word_in "$(normalize_agent "$1")" "${REX_AGENT_RESTORE_REX_RESUMES-claude}"
 }
 
 # Print the resume command for AGENT and CHAT_ID, shell-quoted.
@@ -492,6 +511,12 @@ cmd_restore_plan() {
   agent="$(record_field "$file" agent)"
   chat="$(record_field "$file" chat_id)"
   cwd="$(record_field "$file" cwd)"
+  if rex_resumes "$agent"; then
+    # Saved before Rex resumed this agent itself; Rex has restarted (or
+    # offered to restart) the chat already.
+    rm -f "$file"
+    return 1
+  fi
   cmd="$(resume_command_for "$file")" || return 1
   if [ -n "$agent" ] && ! have "$(agent_program "$agent")"; then
     # The agent isn't installed (or isn't on PATH); don't loop on it.
@@ -771,6 +796,7 @@ list_panes() {
 cmd_capture() {
   need_jq
   have rex || die "rex is not on PATH"
+  load_config
   local dry=0 force=0 server="${REX_SERVER:-}"
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -791,6 +817,10 @@ cmd_capture() {
     agent="$(is_agent_name "$name" || is_agent_name "$argv0")" || continue
     n=$((n + 1))
     f="$(record_path "$block")"
+    if rex_resumes "$agent"; then
+      say "left to Rex:   ${block#block:} ($agent): Rex resumes it itself"
+      continue
+    fi
     if [ -f "$f" ] && [ "$force" = 0 ]; then
       say "already saved: ${block#block:} ($agent)"
       continue
@@ -1627,6 +1657,10 @@ cmd_doctor() {
   have rex && note "rex:      $(command -v rex)" || note "rex:      not on PATH (needed for resume-all and prune)"
   if [ -n "${REX_BLOCK:-}" ]; then note "pane:     $REX_BLOCK"; else note "pane:     not inside Rex"; fi
   if [ -n "${REX_AGENT_RESTORE_SHELL_TOKEN:-}" ]; then note "shell:    integration loaded"; else note "shell:    integration NOT loaded in this shell"; fi
+  load_config
+  if [ -n "${OSC7577_TOKEN:-}" ] && [ -n "${REX_AGENT_RESTORE_REX_RESUMES-claude}" ]; then
+    note "left to Rex: ${REX_AGENT_RESTORE_REX_RESUMES-claude} (Rex resumes these itself)"
+  fi
   for a in $KNOWN_AGENTS; do
     case "$(agent_status "$a")" in
       installed)
@@ -1682,8 +1716,10 @@ Settings (environment or $CONFIG_FILE):
                                            command for you to run, or do nothing
   REX_AGENT_RESTORE_<AGENT>_ARGS="..."     extra arguments when resuming that agent,
                                            e.g. REX_AGENT_RESTORE_CLAUDE_ARGS
+  REX_AGENT_RESTORE_REX_RESUMES="claude"   agents left to Rex's own resume where
+                                           Rex has it (empty: resume them here too)
   REX_AGENT_RESTORE_DISABLE=1              stop saving chats
-  REX_AGENT_RESTORE_DEBUG=1                log hook decisions to $STATE_DIR/debug.log
+  REX_AGENT_RESTORE_DEBUG=1               log hook decisions to $STATE_DIR/debug.log
 EOF
 }
 
