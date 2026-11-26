@@ -2,8 +2,10 @@
 # rex-agent-restore: bring AI agent chats back when Rex restores your panes.
 #
 # How it works:
-#   1. Each agent (Claude Code, Codex, Grok Build) runs `rex-agent-restore hook`
-#      when a chat starts. The hook saves the chat ID for the Rex pane it runs in.
+#   1. Each agent (Codex, OpenCode, Gemini CLI, and more) runs
+#      `rex-agent-restore hook` when a chat starts. The hook saves the chat ID
+#      for the Rex pane it runs in. Where Rex has Program Resume (OSC 7577),
+#      Claude Code is left to Rex; see rex_resumes.
 #   2. Your shell's prompt hook deletes that record when the agent exits
 #      normally, so only chats that were cut off by a restart are kept.
 #   3. When Rex restores a pane, the new shell finds the record for its pane

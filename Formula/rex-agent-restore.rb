@@ -1,5 +1,5 @@
 class RexAgentRestore < Formula
-  desc "Resume coding agent chats (Claude Code, Codex, OpenCode, ...) after Rex restarts"
+  desc "Resume coding agent chats (Codex, OpenCode, Gemini CLI, ...) after Rex restarts"
   homepage "https://github.com/pattont/RexAgentRestore"
   url "https://github.com/pattont/RexAgentRestore/archive/refs/tags/v0.2.7.tar.gz"
   sha256 "5e8a4f14ae0f2cbde77a7cb5356ccf7841e40af6426f5aa422e4192d8d08afc0"
@@ -20,7 +20,9 @@ class RexAgentRestore < Formula
 
       It finds the coding agents you have (Claude Code, Codex, OpenCode, Gemini
       CLI, Cursor Agent, and more), adds a hook or plugin to each, a line to
-      your ~/.zshrc, and palette actions to Rex. Files are backed up first.
+      your shell's startup file, and palette actions to Rex. Files are backed
+      up first. Where Rex resumes Claude Code itself (Program Resume), Claude
+      Code is left to Rex.
 
       Using Codex? Run /hooks in Codex once and approve "Rex Agent Restore".
       Before your first Rex restart, save the chats already open:

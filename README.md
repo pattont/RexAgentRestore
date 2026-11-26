@@ -26,7 +26,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset=".github/assets/hero-dark.svg">
-    <img src=".github/assets/hero-light.svg" width="100%" alt="A Rex window after a restart. Claude Code, Codex and OpenCode have each resumed their chat in their own pane, under a line reading 'rex-agent-restore: resuming … chat'.">
+    <img src=".github/assets/hero-light.svg" width="100%" alt="A Rex window after a restart. Claude Code, Codex and OpenCode have each resumed their chat in their own pane, under a line reading 'rex-agent-restore: resuming … chat'. Where Rex has Program Resume, Rex brings Claude Code back itself.">
   </picture>
 </p>
 
@@ -189,7 +189,7 @@ restored.
 
 | | rexurrect | Rex Agent Restore |
 | --- | --- | --- |
-| Agents it resumes | Claude Code and Codex (others if you write the definition) | 17, built in |
+| Agents it resumes | Claude Code and Codex (others if you write the definition) | 16 built in, plus Claude Code where Rex can't resume it itself |
 | Scrollback and last command | ✅ | ❌ |
 | After a restart | Closes the sessions Rex restored and rebuilds them from its snapshot, with new pane IDs | Keeps the sessions and pane IDs Rex restored |
 | Background process | Yes: a save every 15 minutes | No |
@@ -224,6 +224,10 @@ and Codex come back as plain shells.
    (fish has Rex type the command into the pane instead, so it runs like a
    command you typed.)
 
+**Where Rex has [Program Resume](https://www.superlogical.com/rex/docs/build/program-resume),
+Claude Code skips all three steps:** Rex saves and resumes its chat, and this
+tool stays out of the way (see [Supported agents](#supported-agents)).
+
 The hook works out which agent is really running from the process tree. So:
 - Subagents never replace a pane's saved chat.
 - Agents started from inside another agent never do either, such as a
@@ -253,7 +257,9 @@ the agent. Outside Rex it does nothing.
 <details>
 <summary><b>Exact entries, file by file</b></summary>
 
-**Claude Code**: `~/.claude/settings.json` (or `$CLAUDE_CONFIG_DIR`). Adds to `hooks.SessionStart`:
+**Claude Code**: `~/.claude/settings.json` (or `$CLAUDE_CONFIG_DIR`). The hook
+is added even where Rex resumes Claude Code itself; there it saves nothing, and
+on older Rex versions it keeps working. Adds to `hooks.SessionStart`:
 ```json
 { "hooks": [ { "type": "command", "command": "'/opt/homebrew/bin/rex-agent-restore' hook claude", "timeout": 10 } ] }
 ```
@@ -399,6 +405,7 @@ These two commands only read, and never change, another tool's files:
 - **`capture`**:
   - For each agent running in a Rex pane, it reads Claude Code's
     `~/.claude/sessions/<pid>.json`, which holds that process's chat ID.
+    (Where Rex resumes Claude Code itself, `capture` skips Claude Code panes.)
   - For Codex, it reads the thread list in `~/.codex/state_*.sqlite`.
   - For oh-my-pi, it asks `lsof` which chat file under
     `~/.omp/agent/sessions/` the process has open.
