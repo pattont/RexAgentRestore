@@ -6,6 +6,23 @@
   <a href="https://github.com/pattont/RexAgentRestore/actions/workflows/test.yml"><img src="https://github.com/pattont/RexAgentRestore/actions/workflows/test.yml/badge.svg" alt="test"></a>
 </p>
 
+> [!IMPORTANT]
+> ## Works alongside Rex's built-in resume, never against it
+>
+> Rex now resumes programs on its own with
+> **[Program Resume](https://www.superlogical.com/rex/docs/build/program-resume)**
+> (OSC 7577). Today, **Claude Code is the only agent it brings back out of
+> the box.**
+>
+> **Rex Agent Restore does not interfere with that.** Wherever Rex's Program
+> Resume is available, Claude Code is left entirely to Rex: this tool doesn't
+> save its chats, doesn't resume them, and doesn't touch what Rex restores.
+>
+> **What it adds is everything around it:** the same "your chat comes back
+> after a restart" for the other 16 coding agents that Rex doesn't resume yet
+> (Codex, OpenCode, Gemini CLI, Cursor Agent, and more), and for Claude Code on
+> older Rex versions that don't have Program Resume.
+
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset=".github/assets/hero-dark.svg">
@@ -14,8 +31,9 @@
 </p>
 
 [Rex](https://www.superlogical.com/rex) restores your sessions, tabs, panes
-and their folders after its server restarts, but each pane gets a fresh shell.
-The coding agent chat that was running there is gone.
+and their folders after its server restarts. Out of the box it brings back
+Claude Code too, but for every other coding agent the pane gets a fresh shell,
+and the chat that was running there is gone.
 
 <p align="center">
   <picture>
@@ -25,8 +43,9 @@ The coding agent chat that was running there is gone.
 </p>
 
 Rex Agent Restore puts it back. Each pane resumes the same chat, in the same
-folder, as if Rex had never stopped. It works with 17 coding agents, and
-nothing runs in the background.
+folder, as if Rex had never stopped. It works with 17 coding agents (Claude
+Code only where Rex can't resume it itself), and nothing runs in the
+background.
 
 > Rex Agent Restore is an independent, community project. It is not made by,
 > affiliated with, or endorsed by Superlogical (the makers of Rex) or herdr.
@@ -109,8 +128,9 @@ output of `REX_AGENT_RESTORE_DEBUG=1`. Reports that a beta agent works are
 welcome too.
 
 **Claude Code and Rex's own resume.** Newer Rex versions restart Claude Code
-themselves after a restart (Rex's Program Resume: Claude Code reports its
-resume command to the terminal). In a terminal where Rex does that, this tool
+themselves after a restart (Rex's
+[Program Resume](https://www.superlogical.com/rex/docs/build/program-resume):
+Claude Code reports its resume command to the terminal). In a terminal where Rex does that, this tool
 leaves Claude Code alone: it doesn't save its chats, `capture` skips it, and a
 chat saved earlier isn't resumed a second time. Older Rex versions don't offer
 Program Resume, so there it keeps working as before. To pick which agents are
